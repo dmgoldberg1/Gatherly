@@ -1,0 +1,240 @@
+openapi: 3.0.3
+info:
+  title: Gatherly API
+  version: 0.1.0
+  description: API для MVP платформы неформальных событий с подписками, участием, уведомлениями, outbox worker и пагинацией limit/offset.
+servers:
+  - url: http://localhost:8080/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      security: []
+      summary: Зарегистрировать пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201': { description: Пользователь создан }
+        '409': { description: Username или email уже занят }
+  /auth/login:
+    post:
+      security: []
+      summary: Войти и получить token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200': { description: Token возвращён }
+        '401': { description: Неверные credentials }
+  /me:
+    get:
+      summary: Получить профиль текущего пользователя
+      responses:
+        '200': { description: Текущий пользователь }
+        '401': { description: Требуется авторизация }
+  /me/participations:
+    get:
+      summary: Получить историю участий текущего пользователя
+      responses:
+        '200': { description: Участия с карточками событий }
+        '401': { description: Требуется авторизация }
+  /users:
+    get:
+      security: []
+      summary: Получить список пользователей
+      responses:
+        '200': { description: Пользователи }
+  /users/{id}:
+    get:
+      security: []
+      summary: Получить профиль пользователя
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Пользователь }
+        '404': { description: Не найдено }
+  /users/{id}/follow:
+    post:
+      summary: Подписаться на пользователя
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Подписка создана }
+        '409': { description: Подписка уже существует }
+    delete:
+      summary: Отписаться от пользователя
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Подписка удалена }
+  /users/{id}/followers:
+    get:
+      security: []
+      summary: Получить подписчиков пользователя
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Подписчики }
+  /users/{id}/following:
+    get:
+      security: []
+      summary: Получить пользователей, на которых подписан user
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Подписки }
+  /events:
+    get:
+      security: []
+      summary: Получить публичные события
+      responses:
+        '200': { description: Публичные события }
+    post:
+      summary: Создать draft события
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '201': { description: Draft создан }
+  /events/{id}:
+    get:
+      summary: Получить событие
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Событие }
+    patch:
+      summary: Обновить событие
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '200': { description: Событие обновлено }
+  /events/{id}/publish:
+    post:
+      summary: Опубликовать событие
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Событие опубликовано }
+  /events/{id}/cancel:
+    post:
+      summary: Отменить событие
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Событие отменено }
+  /feed:
+    get:
+      summary: Получить события пользователей из подписок
+      responses:
+        '200': { description: Feed }
+  /events/{id}/participants:
+    post:
+      summary: Присоединиться к событию
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '201': { description: Участие создано }
+    get:
+      summary: Организатор получает список участников
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Участники }
+  /events/{id}/participants/me:
+    patch:
+      summary: Изменить мой статус участия
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [GOING, MAYBE, DECLINED, WAITLISTED]
+      responses:
+        '200': { description: Статус обновлён }
+    delete:
+      summary: Выйти из события
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Пользователь вышел из события }
+  /notifications:
+    get:
+      summary: Получить мои уведомления
+      responses:
+        '200': { description: Уведомления }
+  /notifications/{id}/read:
+    patch:
+      summary: Пометить уведомление прочитанным
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Уведомление }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username: { type: string }
+        email: { type: string }
+        password: { type: string }
+        bio: { type: string }
+        avatar_url: { type: string }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        email: { type: string }
+        password: { type: string }
+    EventRequest:
+      type: object
+      required: [title, location, starts_at]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        location: { type: string }
+        starts_at: { type: string }
+        ends_at: { type: string }
+        photo_url: { type: string }
+        category: { type: string }
+        visibility:
+          type: string
+          enum: [PUBLIC, FOLLOWERS_ONLY, PRIVATE]
+        participant_limit:
+          type: integer

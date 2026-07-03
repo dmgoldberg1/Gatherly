@@ -1,0 +1,41 @@
+services:
+  gatherly:
+    build: .
+    environment:
+      GATHERLY_PORT: 8080
+      GATHERLY_DATABASE_URL: postgresql://gatherly:gatherly@postgres:5432/gatherly
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v5.17.14
+    profiles: ["docs"]
+    environment:
+      SWAGGER_JSON: /openapi/openapi.yaml
+    volumes:
+      - ./docs/openapi.yaml:/openapi/openapi.yaml:ro
+    ports:
+      - "8081:8080"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gatherly
+      POSTGRES_USER: gatherly
+      POSTGRES_PASSWORD: gatherly
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gatherly -d gatherly"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - gatherly_postgres_data:/var/lib/postgresql/data
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    ports:
+      - "5432:5432"
+
+volumes:
+  gatherly_postgres_data:

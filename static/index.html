@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gatherly</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main id="authView" class="auth-layout">
+    <section class="auth-hero" aria-label="Gatherly">
+      <div class="brand-row">
+        <div>
+          <h1>Gatherly</h1>
+          <p>Твои встречи</p>
+        </div>
+      </div>
+      <div class="auth-visual" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </section>
+
+    <section class="auth-card" aria-label="Вход в Gatherly">
+      <div class="auth-tabs" role="tablist">
+        <button id="loginTab" class="active" type="button">Вход</button>
+        <button id="registerTab" type="button">Регистрация</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <label>Имя или email<input id="loginName" autocomplete="username" required></label>
+        <label>Пароль<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Войти</button>
+      </form>
+
+      <form id="registerForm" class="auth-form" hidden>
+        <label>Имя пользователя<input id="registerUsername" autocomplete="username" minlength="3" maxlength="32" required></label>
+        <label>Email<input id="registerEmail" type="email" autocomplete="email" required></label>
+        <label>Пароль<input id="registerPassword" type="password" autocomplete="new-password" required></label>
+        <label>О себе<textarea id="registerBio" maxlength="240"></textarea></label>
+        <label>Ссылка на аватар<input id="registerAvatar" type="url"></label>
+        <button type="submit">Создать аккаунт</button>
+      </form>
+    </section>
+  </main>
+
+  <div id="appView" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand-row compact">
+        <div class="brand-mark">G</div>
+        <div>
+          <h1>Gatherly</h1>
+          <p id="currentUsername">@user</p>
+        </div>
+      </div>
+
+      <nav class="main-nav" aria-label="Разделы">
+        <button class="active" type="button" data-screen="homeScreen">Главная</button>
+        <button type="button" data-screen="searchScreen">Поиск</button>
+        <button type="button" data-screen="createScreen">Создать</button>
+        <button type="button" data-screen="cabinetScreen">Кабинет</button>
+      </nav>
+
+      <button id="logoutButton" class="ghost-button" type="button">Выйти</button>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Gatherly</p>
+          <h2 id="screenTitle">Главная</h2>
+        </div>
+        <button id="refreshButton" class="secondary-button" type="button">Обновить</button>
+      </header>
+
+      <section id="homeScreen" class="screen active-screen">
+        <div id="homeEventOverlay" class="modal-overlay" hidden>
+          <article class="panel home-event-modal">
+            <div id="homeEventModalCard"></div>
+          </article>
+        </div>
+
+        <div class="home-grid">
+          <article class="panel wide-panel home-owned-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Организатор</p>
+                <h3>Мои мероприятия</h3>
+              </div>
+            </div>
+            <div id="ownedEventsList" class="item-list event-list-grid"></div>
+          </article>
+
+          <article class="panel wide-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Мой календарь</p>
+                <h3>Мероприятия, на которые я записан</h3>
+              </div>
+            </div>
+            <div id="registeredEventsList" class="item-list"></div>
+          </article>
+
+          <article class="panel wide-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Подписки</p>
+                <h3>Подборка мероприятий от интересных людей</h3>
+              </div>
+            </div>
+            <div id="feedEventsList" class="item-list event-list-grid"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="searchScreen" class="screen">
+        <div class="search-layout">
+          <div class="search-stack">
+            <article class="panel search-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Поиск</p>
+                  <h3>Люди и мероприятия</h3>
+                </div>
+              </div>
+              <label class="search-field">Что ищем<input id="searchQuery" placeholder="Имя пользователя или название мероприятия"></label>
+            </article>
+
+            <div id="searchEmpty" class="empty-state" hidden>Ничего не найдено</div>
+
+            <article id="usersResultsPanel" class="panel" hidden>
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Люди</p>
+                  <h3>Профили</h3>
+                </div>
+              </div>
+              <div id="usersList" class="item-list compact-list"></div>
+            </article>
+
+            <article id="eventsResultsPanel" class="panel" hidden>
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Мероприятия</p>
+                  <h3>События</h3>
+                </div>
+              </div>
+              <div id="eventsSearchList" class="item-list compact-list"></div>
+            </article>
+          </div>
+
+          <article id="searchDetailPanel" class="panel detail-panel" hidden>
+            <div id="searchDetailCard"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="createScreen" class="screen">
+        <div class="create-layout">
+          <article class="panel event-form-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Организатор</p>
+                <h3>Создать мероприятие</h3>
+              </div>
+            </div>
+            <form id="eventForm" class="form-grid">
+              <label>Название<input id="eventTitle" required maxlength="120"></label>
+              <label>Категория<input id="eventCategory" maxlength="40"></label>
+              <label>Место<input id="eventLocation" required maxlength="160"></label>
+              <label>Лимит участников<input id="eventLimit" type="number" min="0" max="100" value="0"></label>
+              <label>Начало<input id="eventStarts" type="datetime-local" required></label>
+              <label>Конец<input id="eventEnds" type="datetime-local"></label>
+              <label class="wide-field">Описание<textarea id="eventDescription" maxlength="500"></textarea></label>
+
+              <fieldset class="notification-options wide-field">
+                <legend>Кому отправить уведомления</legend>
+                <label class="choice-row"><input type="radio" name="notifyMode" value="all" checked> Всем подписчикам</label>
+                <label class="choice-row"><input type="radio" name="notifyMode" value="selected"> Выбрать из списка подписчиков</label>
+                <div id="friendPicker" class="friend-picker" hidden>
+                  <div id="friendChecklist" class="friend-checklist"></div>
+                </div>
+              </fieldset>
+
+              <button class="wide-field" type="submit">Опубликовать</button>
+            </form>
+          </article>
+        </div>
+      </section>
+
+      <section id="cabinetScreen" class="screen">
+        <div class="cabinet-grid">
+          <article class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Профиль</p>
+                <h3>Мои данные</h3>
+              </div>
+            </div>
+            <div id="myProfileCard"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">История</p>
+                <h3>Посещённые мероприятия</h3>
+              </div>
+            </div>
+            <div id="historyList" class="item-list"></div>
+          </article>
+
+          <article class="panel wide-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Подписчики</p>
+                <h3>Кто следит за мной</h3>
+              </div>
+            </div>
+            <div id="followersList" class="item-list compact-list"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>
