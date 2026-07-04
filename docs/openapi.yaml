@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Gatherly API
   version: 0.1.0
-  description: API для MVP платформы неформальных событий с подписками, участием, уведомлениями, outbox worker и пагинацией limit/offset.
+  description: API платформы неформальных событий с подписками, участием, уведомлениями, outbox worker и пагинацией limit/offset.
 servers:
   - url: http://localhost:8080/api/v1
 security:
@@ -24,7 +24,7 @@ paths:
   /auth/login:
     post:
       security: []
-      summary: Войти и получить token
+      summary: Войти по username или email и получить token
       requestBody:
         required: true
         content:
@@ -43,6 +43,9 @@ paths:
   /me/participations:
     get:
       summary: Получить историю участий текущего пользователя
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200': { description: Участия с карточками событий }
         '401': { description: Требуется авторизация }
@@ -50,6 +53,9 @@ paths:
     get:
       security: []
       summary: Получить список пользователей
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200': { description: Пользователи }
   /users/{id}:
@@ -95,6 +101,9 @@ paths:
     get:
       security: []
       summary: Получить публичные события
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200': { description: Публичные события }
     post:
@@ -115,7 +124,7 @@ paths:
       responses:
         '200': { description: Событие }
     patch:
-      summary: Обновить событие
+      summary: Частично обновить событие
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -123,7 +132,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EventRequest'
+              $ref: '#/components/schemas/EventPatchRequest'
       responses:
         '200': { description: Событие обновлено }
   /events/{id}/publish:
@@ -131,6 +140,18 @@ paths:
       summary: Опубликовать событие
       parameters:
         - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notify_user_ids:
+                  type: array
+                  items:
+                    type: integer
+                    format: int64
       responses:
         '200': { description: Событие опубликовано }
   /events/{id}/cancel:
@@ -143,6 +164,9 @@ paths:
   /feed:
     get:
       summary: Получить события пользователей из подписок
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200': { description: Feed }
   /events/{id}/participants:
@@ -184,6 +208,9 @@ paths:
   /notifications:
     get:
       summary: Получить мои уведомления
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200': { description: Уведомления }
   /notifications/{id}/read:
@@ -205,6 +232,23 @@ components:
       required: true
       schema:
         type: integer
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
   schemas:
     RegisterRequest:
       type: object
@@ -217,14 +261,32 @@ components:
         avatar_url: { type: string }
     LoginRequest:
       type: object
-      required: [username, password]
+      required: [password]
       properties:
         username: { type: string }
         email: { type: string }
         password: { type: string }
+      anyOf:
+        - required: [username]
+        - required: [email]
     EventRequest:
       type: object
       required: [title, location, starts_at]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        location: { type: string }
+        starts_at: { type: string }
+        ends_at: { type: string }
+        photo_url: { type: string }
+        category: { type: string }
+        visibility:
+          type: string
+          enum: [PUBLIC, FOLLOWERS_ONLY, PRIVATE]
+        participant_limit:
+          type: integer
+    EventPatchRequest:
+      type: object
       properties:
         title: { type: string }
         description: { type: string }

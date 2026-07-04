@@ -39,18 +39,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Alice
-    participant Admin
     participant Service
     participant Outbox
     participant Bob
 
-    Admin->>Service: set mode FAILING
+    Note over Service: notification mode = FAILING
     Alice->>Service: publish event
     Service->>Outbox: create PENDING records
     Service->>Outbox: mark FAILED
     Service-->>Alice: event remains PUBLISHED
-    Admin->>Service: set mode RECOVERY
-    Admin->>Service: process outbox
+    Note over Service: notification mode = RECOVERY
+    Service->>Service: background worker polls outbox
     Service->>Bob: create in-app notification
     Service->>Outbox: mark PROCESSED
 ```

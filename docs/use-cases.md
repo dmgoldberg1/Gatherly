@@ -37,9 +37,9 @@
 
 ## Отказ доставки уведомлений и восстановление
 
-1. Admin переключает notification mode в FAILING.
+1. Внутренний notification mode сервиса находится в состоянии FAILING.
 2. Alice публикует событие.
 3. Публикация события проходит успешно, но outbox records получают статус FAILED.
-4. Admin переключает режим в RECOVERY.
-5. Admin запускает обработку outbox.
+4. Notification mode переводится в RECOVERY.
+5. Встроенный worker или явный вызов service-level обработки повторно запускает outbox.
 6. Failed records повторно обрабатываются, уведомления доставляются.
