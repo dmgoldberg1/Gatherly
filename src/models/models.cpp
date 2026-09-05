@@ -95,7 +95,7 @@ EventVisibility EventVisibilityFromString(const std::string& value) {
     if (normalized == "PRIVATE") {
         return EventVisibility::PRIVATE;
     }
-    throw std::runtime_error("Unknown event visibility: " + value);
+    throw std::invalid_argument("Unknown event visibility: " + value);
 }
 
 EventStatus EventStatusFromString(const std::string& value) {
@@ -115,7 +115,7 @@ EventStatus EventStatusFromString(const std::string& value) {
     if (normalized == "ARCHIVED") {
         return EventStatus::ARCHIVED;
     }
-    throw std::runtime_error("Unknown event status: " + value);
+    throw std::invalid_argument("Unknown event status: " + value);
 }
 
 ParticipationStatus ParticipationStatusFromString(const std::string& value) {
@@ -132,7 +132,7 @@ ParticipationStatus ParticipationStatusFromString(const std::string& value) {
     if (normalized == "WAITLISTED") {
         return ParticipationStatus::WAITLISTED;
     }
-    throw std::runtime_error("Unknown participation status: " + value);
+    throw std::invalid_argument("Unknown participation status: " + value);
 }
 
 NotificationStatus NotificationStatusFromString(const std::string& value) {
@@ -143,7 +143,7 @@ NotificationStatus NotificationStatusFromString(const std::string& value) {
     if (normalized == "READ") {
         return NotificationStatus::READ;
     }
-    throw std::runtime_error("Unknown notification status: " + value);
+    throw std::invalid_argument("Unknown notification status: " + value);
 }
 
 OutboxStatus OutboxStatusFromString(const std::string& value) {
@@ -157,7 +157,7 @@ OutboxStatus OutboxStatusFromString(const std::string& value) {
     if (normalized == "FAILED") {
         return OutboxStatus::FAILED;
     }
-    throw std::runtime_error("Unknown outbox status: " + value);
+    throw std::invalid_argument("Unknown outbox status: " + value);
 }
 
 std::string NowIso() {

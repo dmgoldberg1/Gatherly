@@ -6,3 +6,17 @@ cmake-build-*/
 *.log
 *.tmp
 __pycache__/
+.env
+.env.*
+.terraform/
+*.tfstate*
+*.tfvars
+*.tfplan
+.local/
+infra/ansible/secrets.yml
+infra/ansible/inventory.ini
+*.dump
+*.tar.gz
+letsencrypt/
+acme/
+backups/

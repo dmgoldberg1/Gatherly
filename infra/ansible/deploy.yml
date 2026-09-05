@@ -1,0 +1,13 @@
+- name: Deploy Gatherly demo
+  hosts: gatherly
+  become: true
+  vars:
+    gatherly_root: /opt/gatherly
+    repository_root: "{{ playbook_dir }}/../.."
+    domain: ""
+    letsencrypt_email: ""
+    enable_https: false
+    image_archive: ""
+  roles:
+    - docker
+    - gatherly

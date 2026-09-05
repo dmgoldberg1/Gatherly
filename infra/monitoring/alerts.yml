@@ -1,0 +1,23 @@
+groups:
+  - name: gatherly
+    rules:
+      - alert: GatherlyUnavailable
+        expr: up{job="gatherly"} == 0 or gatherly_database_up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Gatherly or its database is unavailable", description: "Check docker compose ps and logs; see docs/monitoring.md."}
+      - alert: OutboxStalled
+        expr: notification_outbox_oldest_age_seconds > 60
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Notifications have been waiting for over a minute"}
+      - alert: GatherlyErrors
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.05
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "More than 5% of requests are server errors"}
+      - alert: DiskAlmostFull
+        expr: node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"} < 0.15
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Less than 15% disk space remains"}

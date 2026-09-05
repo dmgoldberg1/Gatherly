@@ -10,6 +10,23 @@ option(GATHERLY_REQUIRE_DROGON "Fail configure if Drogon is not available" OFF)
 option(GATHERLY_REQUIRE_POSTGRES "Fail configure if libpqxx is not available" OFF)
 
 include(FetchContent)
+find_package(OpenSSL REQUIRED)
+FetchContent_Declare(
+  jwt_cpp
+  URL https://codeload.github.com/Thalhammer/jwt-cpp/tar.gz/refs/tags/v0.7.1
+  URL_HASH SHA256=e52f247d5e62fac5da6191170998271a70ce27f747f2ce8fde9b09f96a5375a4
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+set(JWT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(JWT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(jwt_cpp)
+FetchContent_Declare(nlohmann_json
+  URL https://codeload.github.com/nlohmann/json/tar.gz/refs/tags/v3.12.0
+  URL_HASH SHA256=4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(nlohmann_json)
+
 find_package(GTest QUIET)
 if (NOT GTest_FOUND)
   FetchContent_Declare(
@@ -79,13 +96,16 @@ enable_testing()
 
 add_library(
   gatherly_core
+  src/observability/metrics.cpp
   src/models/models.cpp
   src/services/gatherly_service.cpp
+  src/utils/time.cpp
   src/utils/json.cpp
   src/utils/auth.cpp
   src/controllers/api_controller.cpp
 )
 target_include_directories(gatherly_core PUBLIC src)
+target_link_libraries(gatherly_core PRIVATE jwt-cpp::jwt-cpp OpenSSL::Crypto nlohmann_json::nlohmann_json)
 
 
 if (NOT GATHERLY_DROGON_TARGET STREQUAL "")
@@ -110,8 +130,11 @@ endif()
 add_executable(
   gatherly_tests
   tests/domain_tests.cpp
+  tests/api_tests.cpp
+  tests/auth_tests.cpp
+  tests/reliability_tests.cpp
 )
-target_link_libraries(gatherly_tests PRIVATE gatherly_core GTest::gtest_main)
+target_link_libraries(gatherly_tests PRIVATE gatherly_core GTest::gtest_main jwt-cpp::jwt-cpp)
 
 include(GoogleTest)
 gtest_discover_tests(gatherly_tests)

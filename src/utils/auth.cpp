@@ -1,136 +1,163 @@
 #include "utils/auth.h"
 
-#include <chrono>
-#include <iomanip>
-#include <sstream>
+#include <jwt-cpp/jwt.h>
+#include <openssl/crypto.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+
+#include <array>
+#include <charconv>
+#include <climits>
 #include <stdexcept>
+#include <string_view>
 
 namespace gatherly {
 
 namespace {
 
-const char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+constexpr int kPasswordIterations = 600000;
+constexpr std::string_view kPasswordPrefix = "pbkdf2-sha256$600000$";
+constexpr auto kTokenLifetime = std::chrono::hours(24);
+using Salt = std::array<unsigned char, 16>;
+using PasswordDigest = std::array<unsigned char, 32>;
 
-std::string Base64UrlEncode(const std::string& input) {
-    std::string output;
-    int value = 0;
-    int bits = -6;
-    for (uint8_t ch : input) {
-        value = (value << 8) + ch;
-        bits += 8;
-        while (bits >= 0) {
-            output.push_back(kAlphabet[(value >> bits) & 0x3F]);
-            bits -= 6;
-        }
+template<size_t Size>
+std::string Hex(const std::array<unsigned char, Size>& bytes) {
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(Size * 2);
+    for (auto byte : bytes) {
+        result.push_back(digits[byte >> 4]);
+        result.push_back(digits[byte & 15]);
     }
-    if (bits > -6) {
-        output.push_back(kAlphabet[((value << 8) >> (bits + 8)) & 0x3F]);
-    }
-    return output;
+    return result;
 }
 
-int DecodeChar(char ch) {
-    if (ch >= 'A' && ch <= 'Z') {
-        return ch - 'A';
-    }
-    if (ch >= 'a' && ch <= 'z') {
-        return ch - 'a' + 26;
-    }
-    if (ch >= '0' && ch <= '9') {
-        return ch - '0' + 52;
-    }
-    if (ch == '-') {
-        return 62;
-    }
-    if (ch == '_') {
-        return 63;
-    }
-    return -1;
-}
-
-std::string Base64UrlDecode(const std::string& input) {
-    std::string output;
-    int value = 0;
-    int bits = -8;
-    for (char ch : input) {
-        const int decoded = DecodeChar(ch);
-        if (decoded < 0) {
-            throw std::runtime_error("invalid base64url token part");
-        }
-        value = (value << 6) + decoded;
-        bits += 6;
-        if (bits >= 0) {
-            output.push_back(static_cast<char>((value >> bits) & 0xFF));
-            bits -= 8;
-        }
-    }
-    return output;
-}
-
-int64_t UnixTime() {
-    return std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
-}
-
-std::optional<int64_t> ExtractSubject(const std::string& payload) {
-    const std::string key = "\"sub\":";
-    const size_t pos = payload.find(key);
-    if (pos == std::string::npos) {
+template<size_t Size>
+std::optional<std::array<unsigned char, Size>> ParseHex(std::string_view text) {
+    if (text.size() != Size * 2) {
         return std::nullopt;
     }
-    size_t start = pos + key.size();
-    size_t end = start;
-    while (end < payload.size() && payload[end] >= '0' && payload[end] <= '9') {
-        ++end;
+    std::array<unsigned char, Size> result{};
+    for (size_t i = 0; i < Size; ++i) {
+        unsigned int value = 0;
+        const char* start = text.data() + i * 2;
+        const auto [end, error] = std::from_chars(start, start + 2, value, 16);
+        if (error != std::errc{} || end != start + 2) {
+            return std::nullopt;
+        }
+        result[i] = static_cast<unsigned char>(value);
     }
-    if (start == end) {
-        return std::nullopt;
-    }
-    return std::stoll(payload.substr(start, end - start));
+    return result;
 }
+
+PasswordDigest DerivePassword(const std::string& password, const Salt& salt) {
+    if (password.size() > INT_MAX) {
+        throw std::invalid_argument("password is too long");
+    }
+    PasswordDigest result{};
+    if (PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.size()),
+                         salt.data(), salt.size(), kPasswordIterations,
+                         EVP_sha256(), result.size(), result.data()) != 1) {
+        throw std::runtime_error("password hashing failed");
+    }
+    return result;
+}
+
+template<size_t Size>
+std::array<unsigned char, Size> RandomBytes() {
+    std::array<unsigned char, Size> result{};
+    if (RAND_bytes(result.data(), result.size()) != 1) {
+        throw std::runtime_error("secure random generation failed");
+    }
+    return result;
+}
+
+struct VerificationClock {
+    std::chrono::system_clock::time_point time;
+    std::chrono::system_clock::time_point now() const { return time; }
+};
 
 } // namespace
 
-TokenService::TokenService(std::string secret)
-    : secret_(std::move(secret)) {}
-
-std::string TokenService::IssueToken(int64_t user_id) const {
-    const std::string header = Base64UrlEncode(R"({"alg":"DEV-HASH","typ":"JWT"})");
-    const std::string payload = Base64UrlEncode(
-        std::string(R"({"sub":)") + std::to_string(user_id) + R"(,"iat":)" + std::to_string(UnixTime()) + "}"
-    );
-    return header + "." + payload + "." + Sign(header, payload);
+std::string GenerateAuthSecret() {
+    return Hex(RandomBytes<32>());
 }
 
-std::optional<int64_t> TokenService::VerifyToken(const std::string& token) const {
-    const size_t first = token.find('.');
-    if (first == std::string::npos) {
-        return std::nullopt;
+std::string HashPassword(const std::string& password) {
+    const Salt salt = RandomBytes<16>();
+    return std::string(kPasswordPrefix) + Hex(salt) + "$" + Hex(DerivePassword(password, salt));
+}
+
+bool VerifyPassword(const std::string& password, const std::string& password_hash) {
+    // Existing local accounts are upgraded by Login after successful verification.
+    if (password_hash.starts_with("plain:")) {
+        const std::string_view stored = std::string_view(password_hash).substr(6);
+        return stored.size() == password.size() &&
+               CRYPTO_memcmp(stored.data(), password.data(), stored.size()) == 0;
     }
-    const size_t second = token.find('.', first + 1);
-    if (second == std::string::npos) {
-        return std::nullopt;
+    if (!password_hash.starts_with(kPasswordPrefix)) {
+        return false;
     }
-    const std::string header = token.substr(0, first);
-    const std::string payload = token.substr(first + 1, second - first - 1);
-    const std::string signature = token.substr(second + 1);
-    if (signature != Sign(header, payload)) {
+    const std::string_view encoded = std::string_view(password_hash).substr(kPasswordPrefix.size());
+    if (encoded.size() != 32 + 1 + 64 || encoded[32] != '$') {
+        return false;
+    }
+    const auto salt = ParseHex<16>(encoded.substr(0, 32));
+    const auto expected = ParseHex<32>(encoded.substr(33));
+    if (!salt || !expected) {
+        return false;
+    }
+    const auto actual = DerivePassword(password, *salt);
+    return CRYPTO_memcmp(expected->data(), actual.data(), actual.size()) == 0;
+}
+
+TokenService::TokenService(std::string secret) : secret_(std::move(secret)) {
+    if (secret_.size() < 32) {
+        throw std::invalid_argument("GATHERLY_AUTH_SECRET must contain at least 32 bytes");
+    }
+}
+
+std::string TokenService::IssueToken(int64_t user_id, std::chrono::system_clock::time_point now) const {
+    if (user_id <= 0) {
+        throw std::invalid_argument("token subject must be a positive user id");
+    }
+    return jwt::create()
+        .set_type("JWT")
+        .set_issuer("gatherly")
+        .set_subject(std::to_string(user_id))
+        .set_issued_at(now)
+        .set_expires_at(now + kTokenLifetime)
+        .sign(jwt::algorithm::hs256{secret_});
+}
+
+std::optional<int64_t> TokenService::VerifyToken(
+    const std::string& token, std::chrono::system_clock::time_point now
+) const {
+    if (token.empty() || token.size() > 4096) {
         return std::nullopt;
     }
     try {
-        return ExtractSubject(Base64UrlDecode(payload));
-    } catch (...) {
+        const auto decoded = jwt::decode(token);
+        jwt::verify<VerificationClock, jwt::traits::kazuho_picojson>(VerificationClock{now})
+            .allow_algorithm(jwt::algorithm::hs256{secret_})
+            .with_issuer("gatherly")
+            .with_type("JWT")
+            .verify(decoded);
+        if (!decoded.has_expires_at() || !decoded.has_issued_at() ||
+            now >= decoded.get_expires_at() || decoded.get_expires_at() <= decoded.get_issued_at()) {
+            return std::nullopt;
+        }
+        const auto subject = decoded.get_subject();
+        int64_t user_id = 0;
+        const auto [end, error] = std::from_chars(subject.data(), subject.data() + subject.size(), user_id);
+        if (error != std::errc{} || end != subject.data() + subject.size() || user_id <= 0) {
+            return std::nullopt;
+        }
+        return user_id;
+    } catch (const std::exception&) {
         return std::nullopt;
     }
-}
-
-std::string TokenService::Sign(const std::string& header, const std::string& payload) const {
-    const std::string data = header + "." + payload + "." + secret_;
-    const size_t hash = std::hash<std::string>{}(data);
-    std::ostringstream output;
-    output << std::hex << hash;
-    return Base64UrlEncode(output.str());
 }
 
 } // namespace gatherly

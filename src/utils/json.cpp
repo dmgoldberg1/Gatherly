@@ -1,214 +1,37 @@
 #include "utils/json.h"
-
-#include <cctype>
-#include <cmath>
-#include <sstream>
+#include <nlohmann/json.hpp>
+#include <limits>
 #include <stdexcept>
 
 namespace gatherly {
-
 namespace {
-
 const Json kNull;
-
-std::string EscapeJson(const std::string& value) {
-    std::string result;
-    for (char ch : value) {
-        switch (ch) {
-            case '"':
-                result += "\\\"";
-                break;
-            case '\\':
-                result += "\\\\";
-                break;
-            case '\n':
-                result += "\\n";
-                break;
-            case '\r':
-                result += "\\r";
-                break;
-            case '\t':
-                result += "\\t";
-                break;
-            default:
-                result += ch;
-        }
+Json FromNative(const nlohmann::json& value) {
+    if (value.is_null()) return nullptr;
+    if (value.is_boolean()) return value.get<bool>();
+    if (value.is_string()) return value.get<std::string>();
+    if (value.is_number_unsigned()) {
+        auto number = value.get<uint64_t>();
+        if (number > uint64_t(std::numeric_limits<int64_t>::max())) throw std::invalid_argument("integer out of range");
+        return int64_t(number);
     }
-    return result;
+    if (value.is_number_integer()) return value.get<int64_t>();
+    if (value.is_number_float()) return value.get<double>();
+    if (value.is_array()) {
+        Json::Array output;
+        for (const auto& item : value) output.push_back(FromNative(item));
+        return output;
+    }
+    Json::Object output;
+    for (const auto& [key, item] : value.items()) output.emplace(key, FromNative(item));
+    return output;
 }
-
-class JsonParser {
-public:
-    explicit JsonParser(const std::string& text) : text_(text) {}
-
-    Json Parse() {
-        SkipSpaces();
-        Json value = ParseValue();
-        SkipSpaces();
-        if (pos_ != text_.size()) {
-            throw std::runtime_error("Unexpected JSON tail.");
-        }
-        return value;
-    }
-
-protected:
-    Json ParseValue() {
-        SkipSpaces();
-        if (pos_ >= text_.size()) {
-            throw std::runtime_error("Unexpected JSON end.");
-        }
-        const char ch = text_[pos_];
-        if (ch == '{') {
-            return ParseObject();
-        }
-        if (ch == '[') {
-            return ParseArray();
-        }
-        if (ch == '"') {
-            return ParseString();
-        }
-        if (ch == 't') {
-            Expect("true");
-            return Json(true);
-        }
-        if (ch == 'f') {
-            Expect("false");
-            return Json(false);
-        }
-        if (ch == 'n') {
-            Expect("null");
-            return Json(nullptr);
-        }
-        return ParseNumber();
-    }
-
-    Json ParseObject() {
-        Expect("{");
-        Json::Object object;
-        SkipSpaces();
-        if (TryConsume('}')) {
-            return object;
-        }
-        while (true) {
-            std::string key = ParseString().AsString();
-            SkipSpaces();
-            Expect(":");
-            object[key] = ParseValue();
-            SkipSpaces();
-            if (TryConsume('}')) {
-                break;
-            }
-            Expect(",");
-        }
-        return object;
-    }
-
-    Json ParseArray() {
-        Expect("[");
-        Json::Array array;
-        SkipSpaces();
-        if (TryConsume(']')) {
-            return array;
-        }
-        while (true) {
-            array.push_back(ParseValue());
-            SkipSpaces();
-            if (TryConsume(']')) {
-                break;
-            }
-            Expect(",");
-        }
-        return array;
-    }
-
-    Json ParseString() {
-        Expect("\"");
-        std::string result;
-        while (pos_ < text_.size()) {
-            char ch = text_[pos_++];
-            if (ch == '"') {
-                return result;
-            }
-            if (ch == '\\') {
-                if (pos_ >= text_.size()) {
-                    throw std::runtime_error("Invalid JSON string escape.");
-                }
-                const char escaped = text_[pos_++];
-                switch (escaped) {
-                    case '"':
-                    case '\\':
-                    case '/':
-                        result += escaped;
-                        break;
-                    case 'n':
-                        result += '\n';
-                        break;
-                    case 'r':
-                        result += '\r';
-                        break;
-                    case 't':
-                        result += '\t';
-                        break;
-                    default:
-                        result += escaped;
-                }
-                continue;
-            }
-            result += ch;
-        }
-        throw std::runtime_error("Unterminated JSON string.");
-    }
-
-    Json ParseNumber() {
-        const size_t start = pos_;
-        if (text_[pos_] == '-') {
-            ++pos_;
-        }
-        while (pos_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[pos_]))) {
-            ++pos_;
-        }
-        if (pos_ < text_.size() && text_[pos_] == '.') {
-            ++pos_;
-            while (pos_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[pos_]))) {
-                ++pos_;
-            }
-        }
-        return std::stod(text_.substr(start, pos_ - start));
-    }
-
-    void SkipSpaces() {
-        while (pos_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[pos_]))) {
-            ++pos_;
-        }
-    }
-
-    bool TryConsume(char ch) {
-        SkipSpaces();
-        if (pos_ < text_.size() && text_[pos_] == ch) {
-            ++pos_;
-            return true;
-        }
-        return false;
-    }
-
-    void Expect(const std::string& token) {
-        SkipSpaces();
-        if (text_.substr(pos_, token.size()) != token) {
-            throw std::runtime_error("Expected JSON token: " + token);
-        }
-        pos_ += token.size();
-    }
-
-    const std::string& text_;
-    size_t pos_ = 0;
-};
-
-} // namespace
+}
 
 Json::Json() : value_(nullptr) {}
 Json::Json(std::nullptr_t) : value_(nullptr) {}
 Json::Json(bool value) : value_(value) {}
-Json::Json(int64_t value) : value_(static_cast<double>(value)) {}
+Json::Json(int64_t value) : value_(value) {}
 Json::Json(double value) : value_(value) {}
 Json::Json(const char* value) : value_(std::string(value)) {}
 Json::Json(std::string value) : value_(std::move(value)) {}
@@ -243,9 +66,8 @@ std::string Json::AsString(const std::string& fallback) const {
 }
 
 int64_t Json::AsInt(int64_t fallback) const {
-    if (const auto* value = std::get_if<double>(&value_)) {
-        return static_cast<int64_t>(*value);
-    }
+    if (const auto* value = std::get_if<int64_t>(&value_)) return *value;
+    if (std::holds_alternative<double>(value_)) throw std::invalid_argument("expected an integer");
     return fallback;
 }
 
@@ -273,53 +95,24 @@ bool Json::Contains(const std::string& key) const {
 }
 
 std::string Json::Dump() const {
-    if (std::holds_alternative<std::nullptr_t>(value_)) {
-        return "null";
-    }
-    if (const auto* value = std::get_if<bool>(&value_)) {
-        return *value ? "true" : "false";
-    }
-    if (const auto* value = std::get_if<double>(&value_)) {
-        if (std::floor(*value) == *value) {
-            return std::to_string(static_cast<int64_t>(*value));
-        }
-        std::ostringstream output;
-        output << *value;
-        return output.str();
-    }
-    if (const auto* value = std::get_if<std::string>(&value_)) {
-        return "\"" + EscapeJson(*value) + "\"";
-    }
-    if (const auto* array = std::get_if<Array>(&value_)) {
-        std::string result = "[";
-        for (size_t i = 0; i < array->size(); ++i) {
-            if (i > 0) {
-                result += ",";
-            }
-            result += (*array)[i].Dump();
-        }
-        result += "]";
-        return result;
-    }
-    const auto& object = std::get<Object>(value_);
-    std::string result = "{";
-    bool first = true;
-    for (const auto& [key, value] : object) {
-        if (!first) {
-            result += ",";
-        }
-        first = false;
-        result += "\"" + EscapeJson(key) + "\":" + value.Dump();
-    }
-    result += "}";
-    return result;
+    return std::visit([](const auto& value) -> std::string {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, Array>) {
+            auto output = nlohmann::json::array();
+            for (const auto& item : value) output.push_back(nlohmann::json::parse(item.Dump()));
+            return output.dump();
+        } else if constexpr (std::is_same_v<T, Object>) {
+            auto output = nlohmann::json::object();
+            for (const auto& [key, item] : value) output[key] = nlohmann::json::parse(item.Dump());
+            return output.dump();
+        } else { return nlohmann::json(value).dump(); }
+    }, value_);
 }
 
 Json Json::Parse(const std::string& text) {
-    if (text.empty()) {
-        return Json::Object{};
-    }
-    return JsonParser(text).Parse();
+    if (text.empty()) return Object{};
+    try { return FromNative(nlohmann::json::parse(text)); }
+    catch (const nlohmann::json::exception&) { throw std::invalid_argument("invalid JSON"); }
 }
 
 Json ErrorJson(const std::string& message) {

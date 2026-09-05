@@ -11,6 +11,9 @@ const state = {
   publicEvents: [],
   feedEvents: [],
   history: [],
+  owned: [],
+  notifications: [],
+  editingEventId: null,
   selectedDetail: null,
   selectedHomeEventId: null,
   homeEventParticipants: new Map(),
@@ -244,8 +247,7 @@ function allSearchableEvents() {
 }
 
 function ownedEvents() {
-  const currentId = state.session.user.id;
-  return state.publicEvents.filter((event) => event.organizer_id === currentId);
+  return state.owned;
 }
 
 async function refreshOwnedParticipantCache() {
@@ -325,6 +327,10 @@ function ownedEventListItem(event) {
     </div>
     <div class="item-meta">${escapeHtml(event.location)} · ${escapeHtml(formatDate(event.starts_at))}</div>
     <div>${escapeHtml(event.description || "Без описания")}</div>
+    <div class="item-actions">${statusBadge(event.status)}
+    ${["DRAFT", "PUBLISHED"].includes(event.status) ? `<button data-edit-event="${event.id}">Изменить</button>` : ""}
+    ${event.status === "DRAFT" ? `<button data-publish-event="${event.id}">Опубликовать</button>` : ""}
+    ${event.status !== "CANCELLED" ? `<button data-cancel-event="${event.id}">Отменить мероприятие</button>` : ""}</div>
   </article>`;
 }
 
@@ -695,6 +701,9 @@ function renderAll() {
   renderSearch();
   renderCreate();
   renderCabinet();
+  $("notificationsList").innerHTML = state.notifications.slice().reverse().map((note) => `
+    <article class="item"><strong>${escapeHtml(note.title)}</strong><p>${escapeHtml(note.text)}</p>
+    ${note.status === "NEW" ? `<button data-read-notification="${note.id}">Прочитано</button>` : '<span class="badge gray">Прочитано</span>'}</article>`).join("") || "Пока нет уведомлений";
 }
 
 async function refreshAll(options = {}) {
@@ -709,14 +718,16 @@ async function refreshAll(options = {}) {
     }
 
     const currentId = state.session.user.id;
-    const [me, users, followers, following, publicEvents, feedEvents, history] = await Promise.all([
+    const [me, users, followers, following, publicEvents, feedEvents, history, owned, notifications] = await Promise.all([
       api("/api/v1/me"),
       api(`/api/v1/users${PAGE_QUERY}`),
       api(`/api/v1/users/${currentId}/followers`),
       api(`/api/v1/users/${currentId}/following`),
       api(`/api/v1/events${PAGE_QUERY}`),
       api(`/api/v1/feed${PAGE_QUERY}`),
-      api(`/api/v1/me/participations${PAGE_QUERY}`)
+      api(`/api/v1/me/participations${PAGE_QUERY}`),
+      api(`/api/v1/me/events${PAGE_QUERY}`),
+      api(`/api/v1/notifications${PAGE_QUERY}`)
     ]);
 
     saveSession({ ...state.session, user: me });
@@ -727,6 +738,8 @@ async function refreshAll(options = {}) {
     state.publicEvents = itemsOf(publicEvents);
     state.feedEvents = itemsOf(feedEvents);
     state.history = itemsOf(history);
+    state.owned = itemsOf(owned);
+    state.notifications = itemsOf(notifications);
 
     await refreshOwnedParticipantCache();
     renderAll();
@@ -769,6 +782,9 @@ function eventPayload() {
 }
 
 function resetEventForm() {
+  state.editingEventId = null;
+  $("eventSubmit").textContent = "Опубликовать";
+  $("cancelEdit").hidden = true;
   $("eventForm").reset();
   $("eventLimit").value = "0";
   const notifyAll = document.querySelector('input[name="notifyMode"][value="all"]');
@@ -866,6 +882,12 @@ document.querySelectorAll('input[name="notifyMode"]').forEach((input) => {
 $("eventForm").onsubmit = (event) => {
   event.preventDefault();
   run(async () => {
+    if (state.editingEventId) {
+      const payload = eventPayload();
+      delete payload.visibility; delete payload.photo_url;
+      await api(`/api/v1/events/${state.editingEventId}`, { method: "PATCH", body: payload });
+      resetEventForm(); await refreshAll(); switchScreen("homeScreen"); showToast("Изменения сохранены"); return;
+    }
     const notifyUserIds = selectedNotifyUserIds();
     if (notifyMode() === "selected" && !notifyUserIds.length) {
       showToast("Выберите хотя бы одного подписчика", true);
@@ -891,7 +913,29 @@ document.querySelectorAll(".main-nav button").forEach((button) => {
   };
 });
 
+$("cancelEdit").onclick = () => { resetEventForm(); switchScreen("homeScreen"); };
 document.addEventListener("click", (event) => {
+  const read = event.target.closest("[data-read-notification]");
+  if (read) { run(async () => { await api(`/api/v1/notifications/${read.dataset.readNotification}/read`, {method: "PATCH"}); await refreshAll(); }); return; }
+  const edit = event.target.closest("[data-edit-event]");
+  if (edit) {
+    const item = state.owned.find((item) => item.id === Number(edit.dataset.editEvent));
+    if (!item) return;
+    state.editingEventId = item.id;
+    for (const [field,key] of [["eventTitle","title"],["eventDescription","description"],["eventLocation","location"],["eventCategory","category"],["eventLimit","participant_limit"]]) $(field).value = item[key];
+    const localDate = (value) => { if (!value) return ""; const d = new Date(value); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16); };
+    $("eventStarts").value = localDate(item.starts_at); $("eventEnds").value = localDate(item.ends_at);
+    $("eventSubmit").textContent = "Сохранить изменения"; $("cancelEdit").hidden = false;
+    switchScreen("createScreen"); return;
+  }
+  const cancel = event.target.closest("[data-cancel-event]");
+  if (cancel) {
+    if (confirm("Отменить мероприятие? Участники получат уведомление.")) run(async () => { await api(`/api/v1/events/${cancel.dataset.cancelEvent}/cancel`, {method:"POST"}); await refreshAll(); });
+    return;
+  }
+  const publish = event.target.closest("[data-publish-event]");
+  if (publish) { run(async () => { await api(`/api/v1/events/${publish.dataset.publishEvent}/publish`, {method:"POST"}); await refreshAll(); }); return; }
+
   if (event.target === $("homeEventOverlay")) {
     closeHomeEventModal();
     return;

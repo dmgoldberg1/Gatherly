@@ -1,334 +1,7 @@
-#include <gtest/gtest.h>
-
-#include "services/gatherly_service.h"
-
-#include <algorithm>
-#include <map>
-#include <mutex>
-#include <set>
+#include "test_support.h"
 
 using namespace gatherly;
-
-namespace {
-
-
-template<typename T>
-std::vector<T> ApplyPage(const std::vector<T>& values, int64_t limit, int64_t offset) {
-    const int64_t start = std::min<int64_t>(offset, static_cast<int64_t>(values.size()));
-    const int64_t end = std::min<int64_t>(start + limit, static_cast<int64_t>(values.size()));
-    return std::vector<T>(values.begin() + start, values.begin() + end);
-}
-
-class FakePostgresStore : public IPostgresStore {
-public:
-    int64_t NextUserId() override {
-        std::lock_guard lock(mutex_);
-        return NextIdLocked(users_);
-    }
-
-    int64_t NextEventId() override {
-        std::lock_guard lock(mutex_);
-        return NextIdLocked(events_);
-    }
-
-    int64_t NextParticipationId() override {
-        std::lock_guard lock(mutex_);
-        return NextIdLocked(participations_);
-    }
-
-    int64_t NextNotificationId() override {
-        std::lock_guard lock(mutex_);
-        return NextIdLocked(notifications_);
-    }
-
-    int64_t NextOutboxId() override {
-        std::lock_guard lock(mutex_);
-        return NextIdLocked(outbox_);
-    }
-
-    std::optional<User> GetUser(int64_t id) override {
-        std::lock_guard lock(mutex_);
-        auto it = users_.find(id);
-        if (it == users_.end()) {
-            return std::nullopt;
-        }
-        return it->second;
-    }
-
-    std::optional<User> FindUserByLogin(const std::string& username_or_email) override {
-        std::lock_guard lock(mutex_);
-        for (const auto& [_, user] : users_) {
-            if (user.username == username_or_email || user.email == username_or_email) {
-                return user;
-            }
-        }
-        return std::nullopt;
-    }
-
-    bool UserExists(int64_t id) override {
-        std::lock_guard lock(mutex_);
-        return users_.contains(id);
-    }
-
-    bool UsernameExists(const std::string& username) override {
-        std::lock_guard lock(mutex_);
-        return std::any_of(users_.begin(), users_.end(), [&](const auto& entry) { return entry.second.username == username; });
-    }
-
-    bool EmailExists(const std::string& email) override {
-        std::lock_guard lock(mutex_);
-        return std::any_of(users_.begin(), users_.end(), [&](const auto& entry) { return entry.second.email == email; });
-    }
-
-    std::vector<User> ListUsers(int64_t limit, int64_t offset) override {
-        std::lock_guard lock(mutex_);
-        std::vector<User> result;
-        for (const auto& [_, user] : users_) {
-            result.push_back(user);
-        }
-        return ApplyPage(result, limit, offset);
-    }
-
-    std::optional<Event> GetEvent(int64_t id) override {
-        std::lock_guard lock(mutex_);
-        auto it = events_.find(id);
-        if (it == events_.end()) {
-            return std::nullopt;
-        }
-        return it->second;
-    }
-
-    std::vector<Event> ListPublicEvents(int64_t limit, int64_t offset) override {
-        std::lock_guard lock(mutex_);
-        std::vector<Event> result;
-        for (const auto& [_, event] : events_) {
-            if (event.status == EventStatus::PUBLISHED && event.visibility == EventVisibility::PUBLIC) {
-                result.push_back(event);
-            }
-        }
-        return ApplyPage(result, limit, offset);
-    }
-
-    std::vector<Event> ListFeed(int64_t user_id, int64_t limit, int64_t offset) override {
-        std::lock_guard lock(mutex_);
-        std::vector<Event> result;
-        for (const auto& [_, event] : events_) {
-            if (event.status == EventStatus::PUBLISHED && follows_.contains({user_id, event.organizer_id}) &&
-                (event.visibility == EventVisibility::PUBLIC || event.visibility == EventVisibility::FOLLOWERS_ONLY)) {
-                result.push_back(event);
-            }
-        }
-        return ApplyPage(result, limit, offset);
-    }
-
-    bool IsFollowing(int64_t follower_id, int64_t following_id) override {
-        std::lock_guard lock(mutex_);
-        return follows_.contains({follower_id, following_id});
-    }
-
-    std::vector<User> ListFollowers(int64_t user_id) override {
-        std::lock_guard lock(mutex_);
-        std::vector<User> result;
-        for (const auto& [follower_id, following_id] : follows_) {
-            if (following_id == user_id) {
-                result.push_back(users_.at(follower_id));
-            }
-        }
-        return result;
-    }
-
-    std::vector<User> ListFollowing(int64_t user_id) override {
-        std::lock_guard lock(mutex_);
-        std::vector<User> result;
-        for (const auto& [follower_id, following_id] : follows_) {
-            if (follower_id == user_id) {
-                result.push_back(users_.at(following_id));
-            }
-        }
-        return result;
-    }
-
-    std::optional<Participation> FindParticipation(int64_t user_id, int64_t event_id) override {
-        std::lock_guard lock(mutex_);
-        for (const auto& [_, participation] : participations_) {
-            if (participation.user_id == user_id && participation.event_id == event_id) {
-                return participation;
-            }
-        }
-        return std::nullopt;
-    }
-
-    int64_t CountGoingParticipants(int64_t event_id) override {
-        std::lock_guard lock(mutex_);
-        return std::count_if(participations_.begin(), participations_.end(), [&](const auto& entry) {
-            return entry.second.event_id == event_id && entry.second.status == ParticipationStatus::GOING;
-        });
-    }
-
-    std::vector<Participation> ListEventParticipations(int64_t event_id) override {
-        std::lock_guard lock(mutex_);
-        std::vector<Participation> result;
-        for (const auto& [_, participation] : participations_) {
-            if (participation.event_id == event_id) {
-                result.push_back(participation);
-            }
-        }
-        return result;
-    }
-
-    std::vector<Participation> ListUserParticipations(int64_t user_id, int64_t limit, int64_t offset) override {
-        std::lock_guard lock(mutex_);
-        std::vector<Participation> result;
-        for (const auto& [_, participation] : participations_) {
-            if (participation.user_id == user_id) {
-                result.push_back(participation);
-            }
-        }
-        return ApplyPage(result, limit, offset);
-    }
-
-    std::optional<Notification> GetNotification(int64_t id) override {
-        std::lock_guard lock(mutex_);
-        auto it = notifications_.find(id);
-        if (it == notifications_.end()) {
-            return std::nullopt;
-        }
-        return it->second;
-    }
-
-    std::vector<Notification> ListNotifications(int64_t user_id, int64_t limit, int64_t offset) override {
-        std::lock_guard lock(mutex_);
-        std::vector<Notification> result;
-        for (const auto& [_, notification] : notifications_) {
-            if (notification.user_id == user_id) {
-                result.push_back(notification);
-            }
-        }
-        return ApplyPage(result, limit, offset);
-    }
-
-    std::vector<NotificationOutboxRecord> ListOutbox(int64_t limit, int64_t offset) override {
-        std::lock_guard lock(mutex_);
-        std::vector<NotificationOutboxRecord> result;
-        for (const auto& [_, record] : outbox_) {
-            result.push_back(record);
-        }
-        return ApplyPage(result, limit, offset);
-    }
-
-    std::vector<NotificationOutboxRecord> ListPendingOutbox() override {
-        std::lock_guard lock(mutex_);
-        std::vector<NotificationOutboxRecord> result;
-        for (const auto& [_, record] : outbox_) {
-            if (record.status != OutboxStatus::PROCESSED) {
-                result.push_back(record);
-            }
-        }
-        return result;
-    }
-
-    void UpsertUser(const User& user) override {
-        std::lock_guard lock(mutex_);
-        users_[user.id] = user;
-    }
-
-    void UpsertEvent(const Event& event) override {
-        std::lock_guard lock(mutex_);
-        events_[event.id] = event;
-    }
-
-    void UpsertParticipation(const Participation& participation) override {
-        std::lock_guard lock(mutex_);
-        for (auto& [_, stored] : participations_) {
-            if (stored.event_id == participation.event_id && stored.user_id == participation.user_id) {
-                stored = participation;
-                return;
-            }
-        }
-        participations_[participation.id] = participation;
-    }
-
-    void RemoveParticipation(int64_t event_id, int64_t user_id) override {
-        std::lock_guard lock(mutex_);
-        for (auto it = participations_.begin(); it != participations_.end(); ++it) {
-            if (it->second.event_id == event_id && it->second.user_id == user_id) {
-                participations_.erase(it);
-                return;
-            }
-        }
-    }
-
-    void UpsertNotification(const Notification& notification) override {
-        std::lock_guard lock(mutex_);
-        notifications_[notification.id] = notification;
-    }
-
-    void UpsertOutboxRecord(const NotificationOutboxRecord& record) override {
-        std::lock_guard lock(mutex_);
-        outbox_[record.id] = record;
-    }
-
-    void AddFollow(int64_t follower_id, int64_t following_id) override {
-        std::lock_guard lock(mutex_);
-        follows_.insert({follower_id, following_id});
-    }
-
-    void RemoveFollow(int64_t follower_id, int64_t following_id) override {
-        std::lock_guard lock(mutex_);
-        follows_.erase({follower_id, following_id});
-    }
-
-protected:
-    template<typename T>
-    int64_t NextIdLocked(const std::map<int64_t, T>& values) const {
-        if (values.empty()) {
-            return 1;
-        }
-        return values.rbegin()->first + 1;
-    }
-
-    std::mutex mutex_;
-    std::map<int64_t, User> users_;
-    std::map<int64_t, Event> events_;
-    std::map<int64_t, Participation> participations_;
-    std::map<int64_t, Notification> notifications_;
-    std::map<int64_t, NotificationOutboxRecord> outbox_;
-    std::set<std::pair<int64_t, int64_t>> follows_;
-};
-
-RegisterUserCommand UserCommand(const std::string& username) {
-    RegisterUserCommand command;
-    command.username = username;
-    command.email = username + "@gatherly.local";
-    command.password = "password";
-    command.bio = "demo user";
-    return command;
-}
-
-EventCommand BoardGamesCommand(int64_t limit = 0) {
-    EventCommand command;
-    command.title = "Board games on Saturday";
-    command.description = "Casual evening with friends.";
-    command.location = "Alice home";
-    command.starts_at = "2026-07-04T18:00:00Z";
-    command.ends_at = "2026-07-04T22:00:00Z";
-    command.category = "BOARD_GAMES";
-    command.visibility = EventVisibility::PUBLIC;
-    command.participant_limit = limit;
-    return command;
-}
-
-void ExpectThrowsStatus(int status, const std::function<void()>& fn) {
-    try {
-        fn();
-    } catch (const ServiceError& error) {
-        EXPECT_EQ(error.StatusCode(), status);
-        return;
-    }
-    FAIL() << "expected ServiceError";
-}
-
-} // namespace
+using namespace gatherly::test;
 
 TEST(FollowingTest, FollowAndUnfollow) {
     GatherlyService service(std::make_shared<FakePostgresStore>());
@@ -456,4 +129,213 @@ TEST(AuthTest, LoginReturnsVerifiableBearerToken) {
     ASSERT_FALSE(login.token.empty());
     ASSERT_TRUE(service.Authenticate(login.token).has_value());
     EXPECT_EQ(service.Authenticate(login.token).value(), alice.id);
+}
+
+TEST(AuthTest, RegistrationValidatesRequiredFieldsAndUniqueness) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    auto command = UserCommand("alice");
+    command.password.clear();
+    ExpectThrowsStatus(400, [&] { service.RegisterUser(command); });
+    EXPECT_TRUE(service.ListUsers().empty());
+
+    service.RegisterUser(UserCommand("alice"));
+    ExpectThrowsStatus(409, [&] { service.RegisterUser(UserCommand("alice")); });
+    command = UserCommand("bob");
+    command.email = "alice@gatherly.local";
+    ExpectThrowsStatus(409, [&] { service.RegisterUser(command); });
+    EXPECT_EQ(service.ListUsers().size(), 1);
+}
+
+TEST(AuthTest, EmailLoginAndInvalidCredentials) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const auto login = service.Login(alice.email, "password");
+    EXPECT_EQ(service.Authenticate(login.token), alice.id);
+
+    ExpectThrowsStatus(401, [&] { service.Login("alice", "wrong-password"); });
+    ExpectThrowsStatus(401, [&] { service.Login("unknown", "password"); });
+    EXPECT_FALSE(service.Authenticate("").has_value());
+    EXPECT_FALSE(service.Authenticate("invalid-token").has_value());
+    EXPECT_FALSE(service.Authenticate(login.token + "invalid").has_value());
+}
+
+TEST(EventTest, OnlyOrganizerCanManageEventAndListParticipants) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    const auto command = BoardGamesCommand();
+    const Event draft = service.CreateEvent(alice.id, command);
+
+    ExpectThrowsStatus(403, [&] { service.UpdateEvent(bob.id, draft.id, command); });
+    ExpectThrowsStatus(403, [&] { service.PublishEvent(bob.id, draft.id); });
+    ExpectThrowsStatus(403, [&] { service.CancelEvent(bob.id, draft.id); });
+    ExpectThrowsStatus(403, [&] { service.ListParticipants(bob.id, draft.id); });
+    EXPECT_EQ(service.GetEvent(alice.id, draft.id).status, EventStatus::DRAFT);
+    EXPECT_TRUE(service.ListOutbox().empty());
+}
+
+TEST(EventTest, VisibilitySeparatesPublicFeedAndFollowerFeed) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    const User carol = service.RegisterUser(UserCommand("carol"));
+    service.FollowUser(bob.id, alice.id);
+
+    for (auto visibility : {EventVisibility::PUBLIC, EventVisibility::FOLLOWERS_ONLY, EventVisibility::PRIVATE}) {
+        SCOPED_TRACE(ToString(visibility));
+        auto command = BoardGamesCommand();
+        command.visibility = visibility;
+        const Event draft = service.CreateEvent(alice.id, command);
+        EXPECT_EQ(service.GetEvent(alice.id, draft.id).id, draft.id);
+        ExpectThrowsStatus(403, [&] { service.GetEvent(bob.id, draft.id); });
+        const Event event = service.PublishEvent(alice.id, draft.id);
+
+        if (visibility == EventVisibility::PRIVATE) {
+            ExpectThrowsStatus(403, [&] { service.GetEvent(bob.id, event.id); });
+            ExpectThrowsStatus(403, [&] { service.JoinEvent(bob.id, event.id); });
+        } else {
+            EXPECT_EQ(service.GetEvent(bob.id, event.id).id, event.id);
+        }
+        if (visibility == EventVisibility::PUBLIC) {
+            EXPECT_EQ(service.GetEvent(carol.id, event.id).id, event.id);
+        } else {
+            ExpectThrowsStatus(403, [&] { service.GetEvent(carol.id, event.id); });
+        }
+    }
+
+    const auto public_events = service.ListPublicEvents();
+    ASSERT_EQ(public_events.size(), 1);
+    EXPECT_EQ(public_events.front().visibility, EventVisibility::PUBLIC);
+    const auto feed = service.ListFeed(bob.id);
+    ASSERT_EQ(feed.size(), 2);
+    EXPECT_EQ(feed[0].visibility, EventVisibility::PUBLIC);
+    EXPECT_EQ(feed[1].visibility, EventVisibility::FOLLOWERS_ONLY);
+    EXPECT_TRUE(service.ListFeed(carol.id).empty());
+}
+
+TEST(EventTest, CancellationNotifiesParticipantsAndRemovesEventFromFeeds) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    const User carol = service.RegisterUser(UserCommand("carol"));
+    const Event event = service.PublishEvent(alice.id, service.CreateEvent(alice.id, BoardGamesCommand()).id);
+    service.FollowUser(bob.id, alice.id);
+    service.JoinEvent(bob.id, event.id);
+
+    EXPECT_EQ(service.CancelEvent(alice.id, event.id).status, EventStatus::CANCELLED);
+    EXPECT_TRUE(service.ListPublicEvents().empty());
+    EXPECT_TRUE(service.ListFeed(bob.id).empty());
+    EXPECT_EQ(service.GetEvent(bob.id, event.id).status, EventStatus::CANCELLED);
+    const auto notifications = service.ListNotifications(bob.id);
+    ASSERT_EQ(notifications.size(), 1);
+    EXPECT_EQ(notifications.front().type, "EVENT_CANCELLED");
+    ExpectThrowsStatus(409, [&] { service.JoinEvent(carol.id, event.id); });
+    ExpectThrowsStatus(409, [&] { service.PublishEvent(alice.id, event.id); });
+    ExpectThrowsStatus(409, [&] { service.UpdateEvent(alice.id, event.id, BoardGamesCommand()); });
+    ExpectThrowsStatus(409, [&] { service.CancelEvent(alice.id, event.id); });
+}
+
+TEST(EventTest, InvalidSelectedRecipientLeavesDraftAndOutboxUnchanged) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    const User carol = service.RegisterUser(UserCommand("carol"));
+    service.FollowUser(bob.id, alice.id);
+    const Event draft = service.CreateEvent(alice.id, BoardGamesCommand());
+
+    ExpectThrowsStatus(403, [&] { service.PublishEventForUsers(alice.id, draft.id, {bob.id, carol.id}); });
+    EXPECT_EQ(service.GetEvent(alice.id, draft.id).status, EventStatus::DRAFT);
+    EXPECT_TRUE(service.ListOutbox().empty());
+    EXPECT_TRUE(service.ListNotifications(bob.id).empty());
+}
+
+TEST(ParticipationTest, JoinRejectsDraftsAndDuplicateParticipation) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    const Event draft = service.CreateEvent(alice.id, BoardGamesCommand());
+    ExpectThrowsStatus(409, [&] { service.JoinEvent(bob.id, draft.id); });
+
+    service.PublishEvent(alice.id, draft.id);
+    service.JoinEvent(bob.id, draft.id);
+    ExpectThrowsStatus(409, [&] { service.JoinEvent(bob.id, draft.id); });
+    EXPECT_EQ(service.ListParticipants(alice.id, draft.id).size(), 1);
+}
+
+TEST(ParticipationTest, PromotionFollowsWaitlistOrder) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    const User carol = service.RegisterUser(UserCommand("carol"));
+    const User dave = service.RegisterUser(UserCommand("dave"));
+    const Event event = service.PublishEvent(alice.id, service.CreateEvent(alice.id, BoardGamesCommand(1)).id);
+    service.JoinEvent(bob.id, event.id);
+    service.JoinEvent(carol.id, event.id);
+    service.JoinEvent(dave.id, event.id);
+
+    service.LeaveEvent(bob.id, event.id);
+    auto participants = service.ListParticipants(alice.id, event.id);
+    ASSERT_EQ(participants.size(), 2);
+    EXPECT_EQ(participants[0].user_id, carol.id);
+    EXPECT_EQ(participants[0].status, ParticipationStatus::GOING);
+    EXPECT_EQ(participants[1].user_id, dave.id);
+    EXPECT_EQ(participants[1].status, ParticipationStatus::WAITLISTED);
+
+    service.LeaveEvent(carol.id, event.id);
+    participants = service.ListParticipants(alice.id, event.id);
+    ASSERT_EQ(participants.size(), 1);
+    EXPECT_EQ(participants[0].user_id, dave.id);
+    EXPECT_EQ(participants[0].status, ParticipationStatus::GOING);
+}
+
+TEST(ParticipationTest, StatusChangeCannotExceedCapacity) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    const User carol = service.RegisterUser(UserCommand("carol"));
+    const Event event = service.PublishEvent(alice.id, service.CreateEvent(alice.id, BoardGamesCommand(1)).id);
+    service.JoinEvent(bob.id, event.id);
+    service.JoinEvent(carol.id, event.id);
+
+    EXPECT_EQ(service.SetMyParticipationStatus(bob.id, event.id, ParticipationStatus::GOING).status,
+              ParticipationStatus::GOING);
+    EXPECT_EQ(service.SetMyParticipationStatus(carol.id, event.id, ParticipationStatus::MAYBE).status,
+              ParticipationStatus::MAYBE);
+    EXPECT_EQ(service.SetMyParticipationStatus(carol.id, event.id, ParticipationStatus::GOING).status,
+              ParticipationStatus::WAITLISTED);
+}
+
+TEST(NotificationTest, ReadStatusBelongsToRecipient) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    service.FollowUser(bob.id, alice.id);
+    service.PublishEvent(alice.id, service.CreateEvent(alice.id, BoardGamesCommand()).id);
+    const auto notifications = service.ListNotifications(bob.id);
+    ASSERT_EQ(notifications.size(), 1);
+    const auto id = notifications.front().id;
+    EXPECT_EQ(notifications.front().status, NotificationStatus::NEW);
+    EXPECT_TRUE(service.ListNotifications(alice.id).empty());
+
+    ExpectThrowsStatus(404, [&] { service.MarkNotificationRead(alice.id, id); });
+    EXPECT_EQ(service.ListNotifications(bob.id).front().status, NotificationStatus::NEW);
+    const auto read = service.MarkNotificationRead(bob.id, id);
+    EXPECT_EQ(read.status, NotificationStatus::READ);
+    EXPECT_TRUE(read.read_at.has_value());
+    EXPECT_EQ(service.ListNotifications(bob.id).front().status, NotificationStatus::READ);
+}
+
+TEST(NotificationTest, CompletedOutboxIsNotDeliveredAgainOnSequentialRetry) {
+    GatherlyService service(std::make_shared<FakePostgresStore>());
+    const User alice = service.RegisterUser(UserCommand("alice"));
+    const User bob = service.RegisterUser(UserCommand("bob"));
+    service.FollowUser(bob.id, alice.id);
+    service.PublishEventForUsers(alice.id, service.CreateEvent(alice.id, BoardGamesCommand()).id, {bob.id, bob.id});
+
+    EXPECT_EQ(service.ProcessOutbox(), 0);
+    EXPECT_EQ(service.ListNotifications(bob.id).size(), 1);
+    const auto outbox = service.ListOutbox();
+    ASSERT_EQ(outbox.size(), 1);
+    EXPECT_EQ(outbox.front().status, OutboxStatus::PROCESSED);
+    EXPECT_EQ(outbox.front().attempts, 1);
 }

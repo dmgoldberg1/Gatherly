@@ -1,61 +1,42 @@
 # Gatherly
 
-Gatherly — небольшая социальная платформа для организации неформальных встреч с друзьями: настолки, футбол, кино, прогулки, вечеринки и учебные встречи.
+Демо: [открыть Gatherly](https://meet-greet.158.160.194.229.sslip.io).
 
-Приложение предоставляет пользовательский интерфейс, HTTP API и PostgreSQL-хранилище для сценариев с подписками, событиями, участием и уведомлениями.
+Платформа неформальных событий на C++: регистрация и JWT, профили, подписки,
+публикация событий, участие с лимитом мест и FIFO waitlist, уведомления через
+persistent outbox. Интерфейс на обычном HTML/CSS/JavaScript.
 
-## Возможности
+- Drogon → сервисный слой → PostgreSQL; транзакции защищают публикацию и capacity.
+- PBKDF2-SHA256 для паролей, JWT HS256, корректные Unicode JSON и UTC timestamps.
+- Multi-stage Docker, Nginx, миграции, liveness/readiness, backup/restore.
+- Одна небольшая Yandex VM: Terraform создаёт инфраструктуру, Ansible развёртывает Compose.
+- Prometheus, node/postgres exporters и provisioned Grafana: HTTP, outbox, CPU, память, диск.
+- GitHub Actions: сборка, тесты отказов, проверка инфраструктуры, образы в GHCR.
 
-- Регистрация и вход пользователей через bearer token.
-- Подписки и отписки от пользователей.
-- Создание, обновление, публикация и отмена событий.
-- Публичная лента событий и feed по организаторам, на которых подписан пользователь.
-- Участие в событии с лимитом мест и waitlist.
-- Встроенные уведомления внутри приложения.
-- OpenAPI-контракт и Swagger UI.
+```bash
+docker compose up --build -d
+# http://localhost:8080
+python3 scripts/smoke.py http://localhost:8080
+```
 
-## Технологический стек
+Swagger UI: `docker compose --profile docs up -d`, затем http://localhost:8081.
+Пароль локальной БД — `gatherly`; production-секреты хранятся вне Git.
 
-- C++23
-- CMake
-- Drogon
-- PostgreSQL
-- libpqxx
-- HTML/CSS/JavaScript
-- Docker Compose
-
-## Локальная сборка и тесты
-
-Локальная CMake-сборка собирает доменное ядро и unit-тесты.
+Для native unit tests нужны CMake, C++23, OpenSSL headers, GTest и доступ к
+FetchContent-зависимостям. Drogon/libpqxx нужны для серверного executable;
+Docker устанавливает всё необходимое и выполняет тесты при сборке.
 
 ```bash
 cmake -S . -B build
-cmake --build build
+cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure
 ```
 
-## Docker
+Документация: [архитектура](docs/architecture.md), [развёртывание и HTTPS](docs/deployment.md),
+[мониторинг и диагностика](docs/monitoring.md), [аутентификация](docs/authentication.md),
+[OpenAPI](docs/openapi.yaml). Исходные [требования](docs/requirements.md),
+[сценарии](docs/use-cases.md), [ER diagram](docs/er-diagram.md) и
+[sequence diagram](docs/sequence-diagram.md) сохранены.
 
-Основной запуск поднимает приложение и PostgreSQL с применением schema init:
-
-```bash
-docker compose up --build
-```
-
-Приложение будет доступно на `http://localhost:8080`.
-
-Swagger UI для `docs/openapi.yaml`:
-
-```bash
-docker compose --profile docs up swagger-ui
-```
-
-Swagger UI будет доступен на `http://localhost:8081`.
-
-## Документация
-
-- [requirements.md](docs/requirements.md)
-- [use-cases.md](docs/use-cases.md)
-- [er-diagram.md](docs/er-diagram.md)
-- [sequence-diagram.md](docs/sequence-diagram.md)
-- [openapi.yaml](docs/openapi.yaml)
+Стек: C++23, Drogon, libpqxx, PostgreSQL 16, OpenSSL, jwt-cpp, nlohmann/json,
+GoogleTest, Docker Compose, Nginx, Terraform, Ansible, Prometheus, Grafana.

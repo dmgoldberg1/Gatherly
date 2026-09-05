@@ -1,12 +1,22 @@
 #include "db/postgres_store.h"
+#include "utils/time.h"
 
 #include <pqxx/pqxx>
 
 #include <utility>
+#include <mutex>
+#include <sstream>
 
 namespace gatherly {
 
 namespace {
+
+std::string BoundedConnectionString(std::string value) {
+    if (value.starts_with("postgres://") || value.starts_with("postgresql://")) {
+        return value + (value.find('?') == std::string::npos ? "?" : "&") + "connect_timeout=3&tcp_user_timeout=3000";
+    }
+    return value + " connect_timeout=3 tcp_user_timeout=3000";
+}
 
 constexpr const char* kUserColumns = "id, username, email, password_hash, bio, avatar_url, created_at::text AS created_at";
 constexpr const char* kUserColumnsWithUserAlias = "u.id, u.username, u.email, u.password_hash, u.bio, u.avatar_url, u.created_at::text AS created_at";
@@ -44,8 +54,8 @@ Event EventFromRow(const pqxx::row& row) {
     event.title = row["title"].as<std::string>();
     event.description = row["description"].as<std::string>();
     event.location = row["location"].as<std::string>();
-    event.starts_at = row["starts_at"].as<std::string>();
-    event.ends_at = TextOrEmpty(row, "ends_at");
+    event.starts_at = NormalizeTimestamp(row["starts_at"].as<std::string>());
+    event.ends_at = NormalizeTimestamp(TextOrEmpty(row, "ends_at"));
     event.photo_url = row["photo_url"].as<std::string>();
     event.category = row["category"].as<std::string>();
     event.visibility = EventVisibilityFromString(row["visibility"].as<std::string>());
@@ -102,9 +112,42 @@ NotificationOutboxRecord OutboxRecordFromRow(const pqxx::row& row) {
 }
 
 class PostgresStore : public IPostgresStore {
+    // The demo deliberately uses one connection. Hold the recursive mutex for
+    // the complete operation; nested store calls share its PostgreSQL transaction.
+    class Session {
+    public:
+        explicit Session(PostgresStore& store) : store_(store), lock_(store.mutex_) {
+            if (!store_.transaction_) {
+                if (!store_.connection_ || !store_.connection_->is_open()) {
+                    store_.connection_ = std::make_unique<pqxx::connection>(BoundedConnectionString(store_.connection_string_));
+                }
+                owned_ = std::make_unique<pqxx::work>(*store_.connection_);
+                owned_->exec("SET LOCAL statement_timeout = '3s'");
+                owned_->exec("SET LOCAL lock_timeout = '3s'");
+                store_.transaction_ = owned_.get();
+            }
+        }
+        ~Session() { if (owned_) store_.transaction_ = nullptr; }
+        pqxx::work& Tx() { return *store_.transaction_; }
+        void Commit() { if (owned_) owned_->commit(); }
+        bool OwnsTransaction() const { return bool(owned_); }
+    private:
+        PostgresStore& store_;
+        std::unique_lock<std::recursive_mutex> lock_;
+        std::unique_ptr<pqxx::work> owned_;
+    };
 public:
     explicit PostgresStore(std::string connection_string)
-        : connection_(std::move(connection_string)) {}
+        : connection_string_(std::move(connection_string)) {}
+
+    void RunTransaction(const std::function<void()>& operation) override {
+        Session session(*this);
+        // All writes on this small demo are serialized, including another app
+        // process during a deployment. This also protects capacity and outbox.
+        if (session.OwnsTransaction()) session.Tx().exec("SELECT pg_advisory_xact_lock(714202601)");
+        operation();
+        session.Commit();
+    }
 
     int64_t NextUserId() override { return NextId("users"); }
     int64_t NextEventId() override { return NextId("events"); }
@@ -113,7 +156,8 @@ public:
     int64_t NextOutboxId() override { return NextId("notification_outbox"); }
 
     std::optional<User> GetUser(int64_t id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         const pqxx::result result = tx.exec_params(std::string("SELECT ") + kUserColumns + " FROM users WHERE id=$1", id);
         if (result.empty()) {
             return std::nullopt;
@@ -122,7 +166,8 @@ public:
     }
 
     std::optional<User> FindUserByLogin(const std::string& username_or_email) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         const pqxx::result result = tx.exec_params(std::string("SELECT ") + kUserColumns + " FROM users WHERE username=$1 OR email=$1 ORDER BY id LIMIT 1", username_or_email);
         if (result.empty()) {
             return std::nullopt;
@@ -131,22 +176,26 @@ public:
     }
 
     bool UserExists(int64_t id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         return tx.exec_params("SELECT 1 FROM users WHERE id=$1", id).size() > 0;
     }
 
     bool UsernameExists(const std::string& username) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         return tx.exec_params("SELECT 1 FROM users WHERE username=$1", username).size() > 0;
     }
 
     bool EmailExists(const std::string& email) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         return tx.exec_params("SELECT 1 FROM users WHERE email=$1", email).size() > 0;
     }
 
     std::vector<User> ListUsers(int64_t limit, int64_t offset) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<User> users;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kUserColumns + " FROM users ORDER BY id LIMIT $1 OFFSET $2", limit, offset)) {
             users.push_back(UserFromRow(row));
@@ -155,7 +204,8 @@ public:
     }
 
     std::optional<Event> GetEvent(int64_t id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         const pqxx::result result = tx.exec_params(std::string("SELECT ") + kEventColumns + " FROM events WHERE id=$1", id);
         if (result.empty()) {
             return std::nullopt;
@@ -163,8 +213,16 @@ public:
         return EventFromRow(result.front());
     }
 
+    std::vector<Event> ListOwnedEvents(int64_t user_id, int64_t limit, int64_t offset) override {
+        Session session(*this);
+        std::vector<Event> events;
+        for (const auto& row : session.Tx().exec_params(std::string("SELECT ") + kEventColumns + " FROM events WHERE organizer_id=$1 ORDER BY id LIMIT $2 OFFSET $3", user_id, limit, offset)) events.push_back(EventFromRow(row));
+        return events;
+    }
+
     std::vector<Event> ListPublicEvents(int64_t limit, int64_t offset) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<Event> events;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kEventColumns + " FROM events WHERE status=$1 AND visibility=$2 ORDER BY id LIMIT $3 OFFSET $4", ToString(EventStatus::PUBLISHED), ToString(EventVisibility::PUBLIC), limit, offset)) {
             events.push_back(EventFromRow(row));
@@ -173,7 +231,8 @@ public:
     }
 
     std::vector<Event> ListFeed(int64_t user_id, int64_t limit, int64_t offset) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<Event> events;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kEventColumnsWithEventAlias + " FROM events e JOIN follows f ON f.following_id=e.organizer_id WHERE f.follower_id=$1 AND e.status=$2 AND e.visibility IN ($3,$4) ORDER BY e.id LIMIT $5 OFFSET $6", user_id, ToString(EventStatus::PUBLISHED), ToString(EventVisibility::PUBLIC), ToString(EventVisibility::FOLLOWERS_ONLY), limit, offset)) {
             events.push_back(EventFromRow(row));
@@ -182,12 +241,14 @@ public:
     }
 
     bool IsFollowing(int64_t follower_id, int64_t following_id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         return tx.exec_params("SELECT 1 FROM follows WHERE follower_id=$1 AND following_id=$2", follower_id, following_id).size() > 0;
     }
 
     std::vector<User> ListFollowers(int64_t user_id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<User> users;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kUserColumnsWithUserAlias + " FROM users u JOIN follows f ON f.follower_id=u.id WHERE f.following_id=$1 ORDER BY u.id", user_id)) {
             users.push_back(UserFromRow(row));
@@ -196,7 +257,8 @@ public:
     }
 
     std::vector<User> ListFollowing(int64_t user_id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<User> users;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kUserColumnsWithUserAlias + " FROM users u JOIN follows f ON f.following_id=u.id WHERE f.follower_id=$1 ORDER BY u.id", user_id)) {
             users.push_back(UserFromRow(row));
@@ -205,7 +267,8 @@ public:
     }
 
     std::optional<Participation> FindParticipation(int64_t user_id, int64_t event_id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         const pqxx::result result = tx.exec_params(std::string("SELECT ") + kParticipationColumns + " FROM participations WHERE user_id=$1 AND event_id=$2 ORDER BY id LIMIT 1", user_id, event_id);
         if (result.empty()) {
             return std::nullopt;
@@ -214,12 +277,14 @@ public:
     }
 
     int64_t CountGoingParticipants(int64_t event_id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         return tx.exec_params("SELECT COUNT(*) FROM participations WHERE event_id=$1 AND status=$2", event_id, ToString(ParticipationStatus::GOING))[0][0].as<int64_t>();
     }
 
     std::vector<Participation> ListEventParticipations(int64_t event_id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<Participation> participations;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kParticipationColumns + " FROM participations WHERE event_id=$1 ORDER BY id", event_id)) {
             participations.push_back(ParticipationFromRow(row));
@@ -228,7 +293,8 @@ public:
     }
 
     std::vector<Participation> ListUserParticipations(int64_t user_id, int64_t limit, int64_t offset) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<Participation> participations;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kParticipationColumns + " FROM participations WHERE user_id=$1 ORDER BY id LIMIT $2 OFFSET $3", user_id, limit, offset)) {
             participations.push_back(ParticipationFromRow(row));
@@ -237,7 +303,8 @@ public:
     }
 
     std::optional<Notification> GetNotification(int64_t id) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         const pqxx::result result = tx.exec_params(std::string("SELECT ") + kNotificationColumns + " FROM notifications WHERE id=$1", id);
         if (result.empty()) {
             return std::nullopt;
@@ -246,7 +313,8 @@ public:
     }
 
     std::vector<Notification> ListNotifications(int64_t user_id, int64_t limit, int64_t offset) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<Notification> notifications;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kNotificationColumns + " FROM notifications WHERE user_id=$1 ORDER BY id LIMIT $2 OFFSET $3", user_id, limit, offset)) {
             notifications.push_back(NotificationFromRow(row));
@@ -255,7 +323,8 @@ public:
     }
 
     std::vector<NotificationOutboxRecord> ListOutbox(int64_t limit, int64_t offset) override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<NotificationOutboxRecord> outbox;
         for (const auto& row : tx.exec_params(std::string("SELECT ") + kOutboxColumns + " FROM notification_outbox ORDER BY id LIMIT $1 OFFSET $2", limit, offset)) {
             outbox.push_back(OutboxRecordFromRow(row));
@@ -264,16 +333,18 @@ public:
     }
 
     std::vector<NotificationOutboxRecord> ListPendingOutbox() override {
-        pqxx::read_transaction tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         std::vector<NotificationOutboxRecord> outbox;
-        for (const auto& row : tx.exec_params(std::string("SELECT ") + kOutboxColumns + " FROM notification_outbox WHERE status<>$1 ORDER BY id", ToString(OutboxStatus::PROCESSED))) {
+        for (const auto& row : tx.exec_params(std::string("SELECT ") + kOutboxColumns + " FROM notification_outbox WHERE status<>$1 ORDER BY id LIMIT 100", ToString(OutboxStatus::PROCESSED))) {
             outbox.push_back(OutboxRecordFromRow(row));
         }
         return outbox;
     }
 
     void UpsertUser(const User& user) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params(
             "INSERT INTO users(id, username, email, password_hash, bio, avatar_url, created_at) "
             "VALUES($1,$2,$3,$4,$5,$6,$7::timestamptz) "
@@ -281,11 +352,12 @@ public:
             "password_hash=EXCLUDED.password_hash,bio=EXCLUDED.bio,avatar_url=EXCLUDED.avatar_url",
             user.id, user.username, user.email, user.password_hash, user.bio, user.avatar_url, user.created_at
         );
-        tx.commit();
+        session.Commit();
     }
 
     void UpsertEvent(const Event& event) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params(
             "INSERT INTO events(id, organizer_id, title, description, location, starts_at, ends_at, photo_url, category, visibility, participant_limit, status, created_at, updated_at) "
             "VALUES($1,$2,$3,$4,$5,$6::timestamptz,NULLIF($7,'')::timestamptz,$8,$9,$10,$11,$12,$13::timestamptz,$14::timestamptz) "
@@ -294,28 +366,31 @@ public:
             event.id, event.organizer_id, event.title, event.description, event.location, event.starts_at, event.ends_at,
             event.photo_url, event.category, ToString(event.visibility), event.participant_limit, ToString(event.status), event.created_at, event.updated_at
         );
-        tx.commit();
+        session.Commit();
     }
 
     void UpsertParticipation(const Participation& participation) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params(
             "INSERT INTO participations(id, event_id, user_id, status, created_at, updated_at) "
             "VALUES($1,$2,$3,$4,$5::timestamptz,$6::timestamptz) "
             "ON CONFLICT(event_id, user_id) DO UPDATE SET status=EXCLUDED.status,updated_at=EXCLUDED.updated_at",
             participation.id, participation.event_id, participation.user_id, ToString(participation.status), participation.created_at, participation.updated_at
         );
-        tx.commit();
+        session.Commit();
     }
 
     void RemoveParticipation(int64_t event_id, int64_t user_id) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params("DELETE FROM participations WHERE event_id=$1 AND user_id=$2", event_id, user_id);
-        tx.commit();
+        session.Commit();
     }
 
     void UpsertNotification(const Notification& notification) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params(
             "INSERT INTO notifications(id, user_id, type, title, text, status, created_at, read_at) "
             "VALUES($1,$2,$3,$4,$5,$6,$7::timestamptz,NULLIF($8,'')::timestamptz) "
@@ -323,11 +398,12 @@ public:
             notification.id, notification.user_id, notification.type, notification.title, notification.text,
             ToString(notification.status), notification.created_at, OptionalText(notification.read_at)
         );
-        tx.commit();
+        session.Commit();
     }
 
     void UpsertOutboxRecord(const NotificationOutboxRecord& record) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params(
             "INSERT INTO notification_outbox(id, user_id, type, title, text, status, attempts, created_at, processed_at, last_error) "
             "VALUES($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,NULLIF($9,'')::timestamptz,NULLIF($10,'')) "
@@ -335,37 +411,67 @@ public:
             record.id, record.user_id, record.type, record.title, record.text, ToString(record.status), record.attempts,
             record.created_at, OptionalText(record.processed_at), OptionalText(record.last_error)
         );
-        tx.commit();
+        session.Commit();
     }
 
     void AddFollow(int64_t follower_id, int64_t following_id) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params(
             "INSERT INTO follows(follower_id, following_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
             follower_id, following_id
         );
-        tx.commit();
+        session.Commit();
     }
 
     void RemoveFollow(int64_t follower_id, int64_t following_id) override {
-        pqxx::work tx(connection_);
+        Session session(*this);
+        auto& tx = session.Tx();
         tx.exec_params("DELETE FROM follows WHERE follower_id=$1 AND following_id=$2", follower_id, following_id);
-        tx.commit();
+        session.Commit();
     }
 
 protected:
     int64_t NextId(const std::string& table) {
-        pqxx::work tx(connection_);
-        const pqxx::result result = tx.exec("SELECT COALESCE(MAX(id), 0) + 1 FROM " + table);
+        Session session(*this);
+        auto& tx = session.Tx();
+        const pqxx::result result = tx.exec_params("SELECT nextval(pg_get_serial_sequence($1, 'id'))", table);
         const int64_t id = result[0][0].as<int64_t>();
-        tx.commit();
+        session.Commit();
         return id;
     }
 
-    pqxx::connection connection_;
+    std::string connection_string_;
+    std::recursive_mutex mutex_;
+    std::unique_ptr<pqxx::connection> connection_;
+    pqxx::work* transaction_ = nullptr;
 };
 
 } // namespace
+
+std::string PostgresMetrics(const std::string& connection_string) {
+    try {
+        pqxx::connection connection(BoundedConnectionString(connection_string));
+        pqxx::read_transaction tx(connection);
+        tx.exec("SET LOCAL statement_timeout = '2s'");
+        auto row = tx.exec("SELECT count(*) FILTER (WHERE status='PENDING'), count(*) FILTER (WHERE status='FAILED'), COALESCE(EXTRACT(EPOCH FROM now()-min(created_at) FILTER (WHERE status<>'PROCESSED')),0) FROM notification_outbox")[0];
+        std::ostringstream output;
+        output << "# TYPE gatherly_database_up gauge\ngatherly_database_up 1\n";
+        output << "# TYPE notification_outbox_pending gauge\nnotification_outbox_pending " << row[0].as<int64_t>() << '\n';
+        output << "# TYPE notification_outbox_failed gauge\nnotification_outbox_failed " << row[1].as<int64_t>() << '\n';
+        output << "# TYPE notification_outbox_oldest_age_seconds gauge\nnotification_outbox_oldest_age_seconds " << row[2].as<double>() << '\n';
+        return output.str();
+    } catch (...) { return "# TYPE gatherly_database_up gauge\ngatherly_database_up 0\n"; }
+}
+
+bool IsPostgresReady(const std::string& connection_string) {
+    try {
+        pqxx::connection connection(BoundedConnectionString(connection_string));
+        pqxx::read_transaction tx(connection);
+        tx.exec("SET LOCAL statement_timeout = '2s'");
+        return tx.exec("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='002_sequences.sql') AND to_regclass('notification_outbox') IS NOT NULL")[0][0].as<bool>();
+    } catch (...) { return false; }
+}
 
 std::shared_ptr<IPostgresStore> CreatePostgresStore(const std::string& connection_string) {
     return std::make_shared<PostgresStore>(connection_string);

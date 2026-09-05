@@ -183,7 +183,8 @@
                 </div>
               </fieldset>
 
-              <button class="wide-field" type="submit">Опубликовать</button>
+              <button class="wide-field" id="eventSubmit" type="submit">Опубликовать</button>
+              <button class="wide-field secondary" id="cancelEdit" type="button" hidden>Отменить редактирование</button>
             </form>
           </article>
         </div>
@@ -191,6 +192,10 @@
 
       <section id="cabinetScreen" class="screen">
         <div class="cabinet-grid">
+          <article class="panel wide-panel">
+            <div class="panel-heading"><h3>Уведомления</h3></div>
+            <div id="notificationsList" class="item-list"></div>
+          </article>
           <article class="panel">
             <div class="panel-heading">
               <div>

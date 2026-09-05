@@ -55,7 +55,10 @@ struct EventCommand {
 
 class GatherlyService {
 public:
-    explicit GatherlyService(std::shared_ptr<IPostgresStore> postgres_store);
+    explicit GatherlyService(
+        std::shared_ptr<IPostgresStore> postgres_store,
+        std::string auth_secret = GenerateAuthSecret()
+    );
     ~GatherlyService();
 
     User RegisterUser(const RegisterUserCommand& command);
@@ -76,6 +79,7 @@ public:
     Event PublishEventForUsers(int64_t current_user_id, int64_t event_id, const std::vector<int64_t>& user_ids);
     Event CancelEvent(int64_t current_user_id, int64_t event_id);
     Event GetEvent(int64_t current_user_id, int64_t event_id) const;
+    std::vector<Event> ListOwnedEvents(int64_t user_id, PageRequest page) const;
     std::vector<Event> ListPublicEvents() const;
     std::vector<Event> ListPublicEvents(PageRequest page) const;
     std::vector<Event> ListFeed(int64_t current_user_id) const;
@@ -112,7 +116,7 @@ protected:
 
     std::shared_ptr<IPostgresStore> postgres_store_;
     TokenService token_service_;
-    NotificationMode notification_mode_ = NotificationMode::NORMAL;
+    std::atomic<NotificationMode> notification_mode_ = NotificationMode::NORMAL;
     std::atomic<bool> worker_running_ = false;
     std::thread worker_thread_;
 };

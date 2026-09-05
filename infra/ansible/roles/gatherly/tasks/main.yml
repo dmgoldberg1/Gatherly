@@ -1,0 +1,146 @@
+- name: Validate deployment settings
+  ansible.builtin.assert:
+    that:
+      - gatherly_image | length > 0
+      - postgres_password is match('^[a-fA-F0-9]{64}$')
+      - auth_secret is match('^[a-fA-F0-9]{64}$')
+      - grafana_admin_password is match('^[a-fA-F0-9]{64}$')
+      - not (enable_https | bool) or (domain is match('^[a-z0-9][a-z0-9.-]+[a-z0-9]$') )
+  no_log: true
+- name: Create deployment directories
+  ansible.builtin.file:
+    path: "{{ gatherly_root }}/{{ item }}"
+    state: directory
+    mode: '0755'
+  loop: ['', db, scripts, infra/nginx, infra/monitoring, acme, letsencrypt]
+- name: Create private backup directory
+  ansible.builtin.file:
+    path: "{{ gatherly_root }}/backups"
+    state: directory
+    mode: '0700'
+- name: Copy Compose and migrations
+  ansible.builtin.copy:
+    src: "{{ repository_root }}/{{ item.src }}"
+    dest: "{{ gatherly_root }}/{{ item.dest }}"
+    mode: preserve
+  loop:
+    - {src: docker-compose.prod.yml, dest: docker-compose.prod.yml}
+    - {src: db/migrations/, dest: db/migrations/}
+    - {src: scripts/, dest: scripts/}
+    - {src: infra/monitoring/, dest: infra/monitoring/}
+  register: stack_files
+- name: Write private environment file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ gatherly_root }}/.env"
+    mode: '0600'
+  no_log: true
+- name: Inspect existing proxy configuration
+  ansible.builtin.stat:
+    path: "{{ gatherly_root }}/infra/nginx/http.conf"
+  register: proxy_config
+- name: Install HTTP bootstrap configuration
+  ansible.builtin.copy:
+    src: "{{ repository_root }}/infra/nginx/http.conf"
+    dest: "{{ gatherly_root }}/infra/nginx/http.conf"
+    mode: '0644'
+  when: not proxy_config.stat.exists or not (enable_https | bool)
+  register: http_configuration
+- name: Copy locally built image when requested
+  ansible.builtin.copy:
+    src: "{{ image_archive }}"
+    dest: "{{ gatherly_root }}/image.tar"
+    mode: '0600'
+  register: copied_image
+  when: image_archive | length > 0
+- name: Load locally built image
+  ansible.builtin.command: docker load -i {{ gatherly_root }}/image.tar
+  when: image_archive | length > 0 and copied_image.changed
+  changed_when: true
+- name: Validate Compose configuration
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml config --quiet
+  args: {chdir: "{{ gatherly_root }}"}
+  changed_when: false
+- name: Pull registry image when no archive is supplied
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml pull gatherly
+  args: {chdir: "{{ gatherly_root }}"}
+  when: image_archive | length == 0
+  register: image_pull
+  changed_when: "'Downloaded' in image_pull.stderr"
+- name: Start database before migrations
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml up -d --wait postgres
+  args: {chdir: "{{ gatherly_root }}"}
+  register: database_start
+  changed_when: "'Started' in database_start.stderr or 'Created' in database_start.stderr or 'Recreated' in database_start.stderr"
+- name: Apply versioned migrations
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml run --rm migrate
+  args: {chdir: "{{ gatherly_root }}"}
+  register: migration_result
+  changed_when: "'INSERT 0 1' in migration_result.stdout"
+- name: Start application and monitoring
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 180
+  args: {chdir: "{{ gatherly_root }}"}
+  register: stack_start
+  changed_when: stack_start.stderr_lines | reject("search", "migrate") | select("search", "Started|Created|Recreated") | list | length > 0
+- name: Reload Prometheus configuration without replacing its container
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml kill -s SIGHUP prometheus
+  args: {chdir: "{{ gatherly_root }}"}
+  changed_when: false
+  when: stack_files.changed
+- name: Install Certbot
+  ansible.builtin.apt:
+    name: certbot
+    state: present
+  when: enable_https | bool
+- name: Obtain a trusted certificate using HTTP webroot validation
+  ansible.builtin.command:
+    argv: >-
+      {{ ['certbot', 'certonly', '--non-interactive', '--agree-tos',
+          '--webroot', '-w', gatherly_root + '/acme',
+          '--config-dir', gatherly_root + '/letsencrypt', '-d', domain]
+         + (['--email', letsencrypt_email] if letsencrypt_email | length > 0
+            else ['--register-unsafely-without-email']) }}
+    creates: "{{ gatherly_root }}/letsencrypt/live/{{ domain }}/fullchain.pem"
+  when: enable_https | bool
+- name: Install HTTPS proxy configuration
+  ansible.builtin.template:
+    src: https.conf.j2
+    dest: "{{ gatherly_root }}/infra/nginx/http.conf"
+    mode: '0644'
+  when: enable_https | bool
+  register: tls_configuration
+- name: Validate Nginx configuration
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml exec -T nginx nginx -t
+  args: {chdir: "{{ gatherly_root }}"}
+  changed_when: false
+- name: Reload Nginx to apply configuration
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload
+  args: {chdir: "{{ gatherly_root }}"}
+  changed_when: false
+  when: http_configuration.changed or tls_configuration.changed
+- name: Configure automatic certificate renewal and reload
+  ansible.builtin.cron:
+    name: Gatherly certificate renewal
+    minute: '17'
+    hour: '3,15'
+    job: "certbot renew --quiet --config-dir {{ gatherly_root }}/letsencrypt --deploy-hook 'cd {{ gatherly_root }} && docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload'"
+    state: "{{ 'present' if enable_https | bool else 'absent' }}"
+- name: Configure daily database backup
+  ansible.builtin.cron:
+    name: Gatherly database backup
+    minute: '30'
+    hour: '2'
+    job: "cd {{ gatherly_root }} && sh scripts/backup.sh"
+- name: Verify readiness through the private application endpoint
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml exec -T gatherly curl --fail --silent --max-time 6 http://localhost:8080/ready
+  args: {chdir: "{{ gatherly_root }}"}
+  changed_when: false
+- name: Verify Grafana
+  ansible.builtin.uri:
+    url: http://127.0.0.1:3000/api/health
+    status_code: 200
+    timeout: 10
+  register: grafana_health
+  retries: 12
+  delay: 5
+  until: grafana_health.status == 200

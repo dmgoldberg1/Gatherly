@@ -13,8 +13,11 @@ sequenceDiagram
     Alice->>API: POST /events/{id}/publish
     API->>Service: PublishEvent(alice, event)
     Service->>Service: validate organizer and DRAFT status
+    Note over Service,Outbox: One transaction: event becomes PUBLISHED + outbox rows
     Service->>Outbox: create records for followers
-    Service->>Notifications: process outbox in NORMAL mode
+    Note over Service,Outbox: COMMIT
+    Service->>Notifications: best-effort delivery after commit
+    Note over Outbox,Notifications: One transaction: insert notification + mark PROCESSED
     API-->>Alice: 200 PUBLISHED
 ```
 
@@ -28,8 +31,10 @@ sequenceDiagram
 
     Bob->>API: POST /events/{id}/participants
     API->>Service: JoinEvent(bob, event)
+    Note over Service: BEGIN + advisory lock
     Service->>Service: check visibility and duplicates
     Service->>Service: check participant limit
+    Service->>Service: save participation and COMMIT
     Service-->>API: GOING or WAITLISTED
     API-->>Bob: 201 participation
 ```
@@ -53,3 +58,7 @@ sequenceDiagram
     Service->>Bob: create in-app notification
     Service->>Outbox: mark PROCESSED
 ```
+
+При SQL-ошибке доставки партия откатывается и повторяется worker; публикация
+уже сохранена. FAILED/RECOVERY выше — режимы демонстрационного канала в сервисных
+тестах, а не публичные HTTP-переключатели.

@@ -2,6 +2,8 @@
 
 #include "models/models.h"
 
+#include <functional>
+#include <type_traits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -12,6 +14,20 @@ namespace gatherly {
 class IPostgresStore {
 public:
     virtual ~IPostgresStore() = default;
+
+    // One business operation commits or rolls back as a unit. Nested calls reuse it.
+    virtual void RunTransaction(const std::function<void()>& operation) = 0;
+    template<class Operation>
+    auto InTransaction(Operation&& operation) {
+        using Result = std::invoke_result_t<Operation>;
+        if constexpr (std::is_void_v<Result>) {
+            RunTransaction(operation);
+        } else {
+            std::optional<Result> result;
+            RunTransaction([&] { result.emplace(operation()); });
+            return std::move(*result);
+        }
+    }
 
     virtual int64_t NextUserId() = 0;
     virtual int64_t NextEventId() = 0;
@@ -27,6 +43,7 @@ public:
     virtual std::vector<User> ListUsers(int64_t limit, int64_t offset) = 0;
 
     virtual std::optional<Event> GetEvent(int64_t id) = 0;
+    virtual std::vector<Event> ListOwnedEvents(int64_t user_id, int64_t limit, int64_t offset) = 0;
     virtual std::vector<Event> ListPublicEvents(int64_t limit, int64_t offset) = 0;
     virtual std::vector<Event> ListFeed(int64_t user_id, int64_t limit, int64_t offset) = 0;
 
@@ -54,6 +71,8 @@ public:
     virtual void RemoveFollow(int64_t follower_id, int64_t following_id) = 0;
 };
 
+std::string PostgresMetrics(const std::string& connection_string);
+bool IsPostgresReady(const std::string& connection_string);
 std::shared_ptr<IPostgresStore> CreatePostgresStore(const std::string& connection_string);
 
 } // namespace gatherly

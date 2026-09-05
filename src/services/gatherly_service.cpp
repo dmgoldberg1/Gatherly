@@ -1,9 +1,12 @@
 #include "services/gatherly_service.h"
+#include "observability/metrics.h"
+#include "utils/time.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cctype>
 #include <set>
+#include <iostream>
 
 namespace gatherly {
 
@@ -30,9 +33,9 @@ int ServiceError::StatusCode() const {
     return status_code_;
 }
 
-GatherlyService::GatherlyService(std::shared_ptr<IPostgresStore> postgres_store)
+GatherlyService::GatherlyService(std::shared_ptr<IPostgresStore> postgres_store, std::string auth_secret)
     : postgres_store_(std::move(postgres_store)),
-      token_service_("gatherly-local-dev-secret") {
+      token_service_(std::move(auth_secret)) {
     if (!postgres_store_) {
         throw std::invalid_argument("postgres store is required");
     }
@@ -44,33 +47,43 @@ GatherlyService::~GatherlyService() {
 }
 
 User GatherlyService::RegisterUser(const RegisterUserCommand& command) {
-    ValidateRegisterCommand(command);
-    if (postgres_store_->UsernameExists(command.username)) {
-        throw ServiceError(409, "username already exists.");
-    }
-    if (postgres_store_->EmailExists(command.email)) {
-        throw ServiceError(409, "email already exists.");
-    }
+    return postgres_store_->InTransaction([&] {
 
-    const std::string now = NowIso();
-    User user;
-    user.id = postgres_store_->NextUserId();
-    user.username = command.username;
-    user.email = command.email;
-    user.password_hash = "plain:" + command.password;
-    user.bio = command.bio;
-    user.avatar_url = command.avatar_url;
-    user.created_at = now;
-    postgres_store_->UpsertUser(user);
-    return user;
+        ValidateRegisterCommand(command);
+        if (postgres_store_->UsernameExists(command.username)) {
+            throw ServiceError(409, "username already exists.");
+        }
+        if (postgres_store_->EmailExists(command.email)) {
+            throw ServiceError(409, "email already exists.");
+        }
+
+        const std::string now = NowIso();
+        User user;
+        user.id = postgres_store_->NextUserId();
+        user.username = command.username;
+        user.email = command.email;
+        user.password_hash = HashPassword(command.password);
+        user.bio = command.bio;
+        user.avatar_url = command.avatar_url;
+        user.created_at = now;
+        postgres_store_->UpsertUser(user);
+        return user;
+    });
 }
 
 LoginResult GatherlyService::Login(const std::string& username_or_email, const std::string& password) {
-    const std::optional<User> user = postgres_store_->FindUserByLogin(username_or_email);
-    if (user.has_value() && user->password_hash == "plain:" + password) {
-        return LoginResult{user.value(), token_service_.IssueToken(user->id)};
-    }
-    throw ServiceError(401, "invalid credentials.");
+    return postgres_store_->InTransaction([&] {
+
+        std::optional<User> user = postgres_store_->FindUserByLogin(username_or_email);
+        if (user.has_value() && VerifyPassword(password, user->password_hash)) {
+            if (user->password_hash.starts_with("plain:")) {
+                user->password_hash = HashPassword(password);
+                postgres_store_->UpsertUser(*user);
+            }
+            return LoginResult{user.value(), token_service_.IssueToken(user->id)};
+        }
+        throw ServiceError(401, "invalid credentials.");
+    });
 }
 
 std::optional<int64_t> GatherlyService::Authenticate(const std::string& token) const {
@@ -99,23 +112,29 @@ std::vector<User> GatherlyService::ListUsers(PageRequest page) const {
 }
 
 void GatherlyService::FollowUser(int64_t current_user_id, int64_t user_id) {
-    if (!postgres_store_->UserExists(current_user_id) || !postgres_store_->UserExists(user_id)) {
-        throw ServiceError(404, "user not found.");
-    }
-    if (current_user_id == user_id) {
-        throw ServiceError(400, "user cannot follow himself.");
-    }
-    if (postgres_store_->IsFollowing(current_user_id, user_id)) {
-        throw ServiceError(409, "user is already followed.");
-    }
-    postgres_store_->AddFollow(current_user_id, user_id);
+    return postgres_store_->InTransaction([&] {
+
+        if (!postgres_store_->UserExists(current_user_id) || !postgres_store_->UserExists(user_id)) {
+            throw ServiceError(404, "user not found.");
+        }
+        if (current_user_id == user_id) {
+            throw ServiceError(400, "user cannot follow himself.");
+        }
+        if (postgres_store_->IsFollowing(current_user_id, user_id)) {
+            throw ServiceError(409, "user is already followed.");
+        }
+        postgres_store_->AddFollow(current_user_id, user_id);
+    });
 }
 
 void GatherlyService::UnfollowUser(int64_t current_user_id, int64_t user_id) {
-    if (!postgres_store_->IsFollowing(current_user_id, user_id)) {
-        throw ServiceError(404, "follow relation not found.");
-    }
-    postgres_store_->RemoveFollow(current_user_id, user_id);
+    return postgres_store_->InTransaction([&] {
+
+        if (!postgres_store_->IsFollowing(current_user_id, user_id)) {
+            throw ServiceError(404, "follow relation not found.");
+        }
+        postgres_store_->RemoveFollow(current_user_id, user_id);
+    });
 }
 
 std::vector<User> GatherlyService::ListFollowers(int64_t user_id) const {
@@ -133,117 +152,156 @@ std::vector<User> GatherlyService::ListFollowing(int64_t user_id) const {
 }
 
 Event GatherlyService::CreateEvent(int64_t organizer_id, const EventCommand& command) {
-    ValidateEventCommand(command);
-    if (!postgres_store_->UserExists(organizer_id)) {
-        throw ServiceError(404, "organizer not found.");
-    }
+    return postgres_store_->InTransaction([&] {
 
-    const std::string now = NowIso();
-    Event event;
-    event.id = postgres_store_->NextEventId();
-    event.organizer_id = organizer_id;
-    event.title = command.title;
-    event.description = command.description;
-    event.location = command.location;
-    event.starts_at = command.starts_at;
-    event.ends_at = command.ends_at;
-    event.photo_url = command.photo_url;
-    event.category = command.category;
-    event.visibility = command.visibility;
-    event.participant_limit = command.participant_limit;
-    event.status = EventStatus::DRAFT;
-    event.created_at = now;
-    event.updated_at = now;
-    postgres_store_->UpsertEvent(event);
-    return event;
+        ValidateEventCommand(command);
+        if (!postgres_store_->UserExists(organizer_id)) {
+            throw ServiceError(404, "organizer not found.");
+        }
+
+        const std::string now = NowIso();
+        Event event;
+        event.id = postgres_store_->NextEventId();
+        event.organizer_id = organizer_id;
+        event.title = command.title;
+        event.description = command.description;
+        event.location = command.location;
+        event.starts_at = NormalizeTimestamp(command.starts_at);
+        event.ends_at = NormalizeTimestamp(command.ends_at);
+        event.photo_url = command.photo_url;
+        event.category = command.category;
+        event.visibility = command.visibility;
+        event.participant_limit = command.participant_limit;
+        event.status = EventStatus::DRAFT;
+        event.created_at = now;
+        event.updated_at = now;
+        postgres_store_->UpsertEvent(event);
+        return event;
+    });
 }
 
 Event GatherlyService::UpdateEvent(int64_t current_user_id, int64_t event_id, const EventCommand& command) {
-    ValidateEventCommand(command);
-    std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
-    if (!stored_event.has_value()) {
-        throw ServiceError(404, "event not found.");
-    }
-    Event event = stored_event.value();
-    EnsureOrganizer(current_user_id, event);
-    if (event.status != EventStatus::DRAFT && event.status != EventStatus::PUBLISHED) {
-        throw ServiceError(409, "only draft or published event can be updated.");
-    }
+    auto result = postgres_store_->InTransaction([&] {
 
-    const bool time_or_location_changed = event.status == EventStatus::PUBLISHED &&
-        (event.starts_at != command.starts_at || event.ends_at != command.ends_at || event.location != command.location);
+        ValidateEventCommand(command);
+        std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
+        if (!stored_event.has_value()) {
+            throw ServiceError(404, "event not found.");
+        }
+        Event event = stored_event.value();
+        EnsureOrganizer(current_user_id, event);
+        if (event.status != EventStatus::DRAFT && event.status != EventStatus::PUBLISHED) {
+            throw ServiceError(409, "only draft or published event can be updated.");
+        }
 
-    event.title = command.title;
-    event.description = command.description;
-    event.location = command.location;
-    event.starts_at = command.starts_at;
-    event.ends_at = command.ends_at;
-    event.photo_url = command.photo_url;
-    event.category = command.category;
-    event.visibility = command.visibility;
-    event.participant_limit = command.participant_limit;
-    event.updated_at = NowIso();
+        const bool time_or_location_changed = event.status == EventStatus::PUBLISHED &&
+            (event.starts_at != NormalizeTimestamp(command.starts_at) || event.ends_at != NormalizeTimestamp(command.ends_at) || event.location != command.location);
 
-    postgres_store_->UpsertEvent(event);
-    if (time_or_location_changed) {
-        AddParticipantsOutbox(event, "EVENT_UPDATED", "Событие обновлено", "У события " + event.title + " изменились время или место.");
-        ProcessOutbox();
+        event.title = command.title;
+        event.description = command.description;
+        event.location = command.location;
+        event.starts_at = NormalizeTimestamp(command.starts_at);
+        event.ends_at = NormalizeTimestamp(command.ends_at);
+        event.photo_url = command.photo_url;
+        event.category = command.category;
+        event.visibility = command.visibility;
+        event.participant_limit = command.participant_limit;
+        event.updated_at = NowIso();
+
+        postgres_store_->UpsertEvent(event);
+        if (time_or_location_changed) {
+            AddParticipantsOutbox(event, "EVENT_UPDATED", "Событие обновлено", "У события " + event.title + " изменились время или место.");
+
+        }
+        return event;
+    });
+    // Delivery is best effort after commit; a failure must not undo the event.
+    try { ProcessOutbox(); } catch (const std::exception&) {
+        ++Metrics::Instance().processing_errors;
+        std::cerr << "Outbox delivery deferred to worker.\n";
     }
-    return event;
+    return result;
 }
 
 Event GatherlyService::PublishEvent(int64_t current_user_id, int64_t event_id) {
-    std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
-    if (!stored_event.has_value()) {
-        throw ServiceError(404, "event not found.");
+    auto result = postgres_store_->InTransaction([&] {
+
+        std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
+        if (!stored_event.has_value()) {
+            throw ServiceError(404, "event not found.");
+        }
+        Event event = stored_event.value();
+        EnsureOrganizer(current_user_id, event);
+        if (event.status != EventStatus::DRAFT) {
+            throw ServiceError(409, "only draft event can be published.");
+        }
+        event.status = EventStatus::PUBLISHED;
+        event.updated_at = NowIso();
+        postgres_store_->UpsertEvent(event);
+        AddFollowersPublishOutbox(event);
+
+        return event;
+    });
+    // Delivery is best effort after commit; a failure must not undo the event.
+    try { ProcessOutbox(); } catch (const std::exception&) {
+        ++Metrics::Instance().processing_errors;
+        std::cerr << "Outbox delivery deferred to worker.\n";
     }
-    Event event = stored_event.value();
-    EnsureOrganizer(current_user_id, event);
-    if (event.status != EventStatus::DRAFT) {
-        throw ServiceError(409, "only draft event can be published.");
-    }
-    event.status = EventStatus::PUBLISHED;
-    event.updated_at = NowIso();
-    postgres_store_->UpsertEvent(event);
-    AddFollowersPublishOutbox(event);
-    ProcessOutbox();
-    return event;
+    return result;
 }
 
 Event GatherlyService::PublishEventForUsers(int64_t current_user_id, int64_t event_id, const std::vector<int64_t>& user_ids) {
-    std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
-    if (!stored_event.has_value()) {
-        throw ServiceError(404, "event not found.");
+    auto result = postgres_store_->InTransaction([&] {
+
+        std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
+        if (!stored_event.has_value()) {
+            throw ServiceError(404, "event not found.");
+        }
+        Event event = stored_event.value();
+        EnsureOrganizer(current_user_id, event);
+        if (event.status != EventStatus::DRAFT) {
+            throw ServiceError(409, "only draft event can be published.");
+        }
+        event.status = EventStatus::PUBLISHED;
+        event.updated_at = NowIso();
+        AddSelectedPublishOutbox(event, user_ids);
+        postgres_store_->UpsertEvent(event);
+
+        return event;
+    });
+    // Delivery is best effort after commit; a failure must not undo the event.
+    try { ProcessOutbox(); } catch (const std::exception&) {
+        ++Metrics::Instance().processing_errors;
+        std::cerr << "Outbox delivery deferred to worker.\n";
     }
-    Event event = stored_event.value();
-    EnsureOrganizer(current_user_id, event);
-    if (event.status != EventStatus::DRAFT) {
-        throw ServiceError(409, "only draft event can be published.");
-    }
-    event.status = EventStatus::PUBLISHED;
-    event.updated_at = NowIso();
-    AddSelectedPublishOutbox(event, user_ids);
-    postgres_store_->UpsertEvent(event);
-    ProcessOutbox();
-    return event;
+    return result;
 }
 
 Event GatherlyService::CancelEvent(int64_t current_user_id, int64_t event_id) {
-    std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
-    if (!stored_event.has_value()) {
-        throw ServiceError(404, "event not found.");
+    auto result = postgres_store_->InTransaction([&] {
+
+        std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
+        if (!stored_event.has_value()) {
+            throw ServiceError(404, "event not found.");
+        }
+        Event event = stored_event.value();
+        EnsureOrganizer(current_user_id, event);
+        if (event.status == EventStatus::CANCELLED) {
+            throw ServiceError(409, "event is already cancelled.");
+        }
+        event.status = EventStatus::CANCELLED;
+        event.updated_at = NowIso();
+        postgres_store_->UpsertEvent(event);
+        AddParticipantsOutbox(event, "EVENT_CANCELLED", "Событие отменено", "Событие " + event.title + " отменено.");
+
+        return event;
+    });
+    // Delivery is best effort after commit; a failure must not undo the event.
+    try { ProcessOutbox(); } catch (const std::exception&) {
+        ++Metrics::Instance().processing_errors;
+        std::cerr << "Outbox delivery deferred to worker.\n";
     }
-    Event event = stored_event.value();
-    EnsureOrganizer(current_user_id, event);
-    if (event.status == EventStatus::CANCELLED) {
-        throw ServiceError(409, "event is already cancelled.");
-    }
-    event.status = EventStatus::CANCELLED;
-    event.updated_at = NowIso();
-    postgres_store_->UpsertEvent(event);
-    AddParticipantsOutbox(event, "EVENT_CANCELLED", "Событие отменено", "Событие " + event.title + " отменено.");
-    ProcessOutbox();
-    return event;
+    return result;
 }
 
 Event GatherlyService::GetEvent(int64_t current_user_id, int64_t event_id) const {
@@ -255,6 +313,11 @@ Event GatherlyService::GetEvent(int64_t current_user_id, int64_t event_id) const
         throw ServiceError(403, "event is not visible for current user.");
     }
     return event.value();
+}
+
+std::vector<Event> GatherlyService::ListOwnedEvents(int64_t user_id, PageRequest page) const {
+    page = NormalizePage(page);
+    return postgres_store_->ListOwnedEvents(user_id, page.limit, page.offset);
 }
 
 std::vector<Event> GatherlyService::ListPublicEvents() const {
@@ -276,65 +339,74 @@ std::vector<Event> GatherlyService::ListFeed(int64_t current_user_id, PageReques
 }
 
 Participation GatherlyService::JoinEvent(int64_t current_user_id, int64_t event_id) {
-    std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
-    if (!stored_event.has_value()) {
-        throw ServiceError(404, "event not found.");
-    }
-    const Event& event = stored_event.value();
-    if (event.status != EventStatus::PUBLISHED) {
-        throw ServiceError(409, "only published event can be joined.");
-    }
-    if (!CanViewEvent(current_user_id, event)) {
-        throw ServiceError(403, "event is not visible for current user.");
-    }
-    if (postgres_store_->FindParticipation(current_user_id, event_id).has_value()) {
-        throw ServiceError(409, "participation already exists.");
-    }
+    return postgres_store_->InTransaction([&] {
 
-    const bool full = event.participant_limit > 0 && postgres_store_->CountGoingParticipants(event_id) >= event.participant_limit;
-    const std::string now = NowIso();
-    Participation participation;
-    participation.id = postgres_store_->NextParticipationId();
-    participation.event_id = event_id;
-    participation.user_id = current_user_id;
-    participation.status = full ? ParticipationStatus::WAITLISTED : ParticipationStatus::GOING;
-    participation.created_at = now;
-    participation.updated_at = now;
-    postgres_store_->UpsertParticipation(participation);
-    return participation;
+        std::optional<Event> stored_event = postgres_store_->GetEvent(event_id);
+        if (!stored_event.has_value()) {
+            throw ServiceError(404, "event not found.");
+        }
+        const Event& event = stored_event.value();
+        if (event.status != EventStatus::PUBLISHED) {
+            throw ServiceError(409, "only published event can be joined.");
+        }
+        if (!CanViewEvent(current_user_id, event)) {
+            throw ServiceError(403, "event is not visible for current user.");
+        }
+        if (postgres_store_->FindParticipation(current_user_id, event_id).has_value()) {
+            throw ServiceError(409, "participation already exists.");
+        }
+
+        const bool full = event.participant_limit > 0 && postgres_store_->CountGoingParticipants(event_id) >= event.participant_limit;
+        const std::string now = NowIso();
+        Participation participation;
+        participation.id = postgres_store_->NextParticipationId();
+        participation.event_id = event_id;
+        participation.user_id = current_user_id;
+        participation.status = full ? ParticipationStatus::WAITLISTED : ParticipationStatus::GOING;
+        participation.created_at = now;
+        participation.updated_at = now;
+        postgres_store_->UpsertParticipation(participation);
+        return participation;
+    });
 }
 
 Participation GatherlyService::SetMyParticipationStatus(int64_t current_user_id, int64_t event_id, ParticipationStatus status) {
-    std::optional<Participation> participation = postgres_store_->FindParticipation(current_user_id, event_id);
-    if (!participation.has_value()) {
-        throw ServiceError(404, "participation not found.");
-    }
-    if (status == ParticipationStatus::GOING) {
-        const std::optional<Event> event = postgres_store_->GetEvent(event_id);
-        if (!event.has_value()) {
-            throw ServiceError(404, "event not found.");
+    return postgres_store_->InTransaction([&] {
+
+        std::optional<Participation> participation = postgres_store_->FindParticipation(current_user_id, event_id);
+        if (!participation.has_value()) {
+            throw ServiceError(404, "participation not found.");
         }
-        if (event->participant_limit > 0 && postgres_store_->CountGoingParticipants(event_id) >= event->participant_limit &&
-            participation->status != ParticipationStatus::GOING) {
-            status = ParticipationStatus::WAITLISTED;
+        if (status == ParticipationStatus::GOING) {
+            const std::optional<Event> event = postgres_store_->GetEvent(event_id);
+            if (!event.has_value()) {
+                throw ServiceError(404, "event not found.");
+            }
+            if (event->participant_limit > 0 && postgres_store_->CountGoingParticipants(event_id) >= event->participant_limit &&
+                participation->status != ParticipationStatus::GOING) {
+                status = ParticipationStatus::WAITLISTED;
+            }
         }
-    }
-    participation->status = status;
-    participation->updated_at = NowIso();
-    postgres_store_->UpsertParticipation(participation.value());
-    return participation.value();
+        participation->status = status;
+        participation->updated_at = NowIso();
+        postgres_store_->UpsertParticipation(participation.value());
+        return participation.value();
+    });
 }
 
 void GatherlyService::LeaveEvent(int64_t current_user_id, int64_t event_id) {
-    const std::optional<Participation> participation = postgres_store_->FindParticipation(current_user_id, event_id);
-    if (!participation.has_value()) {
-        throw ServiceError(404, "participation not found.");
-    }
-    const bool was_going = participation->status == ParticipationStatus::GOING;
-    postgres_store_->RemoveParticipation(event_id, current_user_id);
-    if (was_going) {
-        PromoteFirstWaitlisted(event_id);
-    }
+    return postgres_store_->InTransaction([&] {
+
+        const std::optional<Participation> participation = postgres_store_->FindParticipation(current_user_id, event_id);
+        if (!participation.has_value()) {
+            throw ServiceError(404, "participation not found.");
+        }
+        const bool was_going = participation->status == ParticipationStatus::GOING;
+        postgres_store_->RemoveParticipation(event_id, current_user_id);
+        if (was_going) {
+            PromoteFirstWaitlisted(event_id);
+        }
+    });
 }
 
 std::vector<Participation> GatherlyService::ListParticipants(int64_t current_user_id, int64_t event_id) const {
@@ -364,14 +436,17 @@ std::vector<Notification> GatherlyService::ListNotifications(int64_t current_use
 }
 
 Notification GatherlyService::MarkNotificationRead(int64_t current_user_id, int64_t notification_id) {
-    std::optional<Notification> notification = postgres_store_->GetNotification(notification_id);
-    if (!notification.has_value() || notification->user_id != current_user_id) {
-        throw ServiceError(404, "notification not found.");
-    }
-    notification->status = NotificationStatus::READ;
-    notification->read_at = NowIso();
-    postgres_store_->UpsertNotification(notification.value());
-    return notification.value();
+    return postgres_store_->InTransaction([&] {
+
+        std::optional<Notification> notification = postgres_store_->GetNotification(notification_id);
+        if (!notification.has_value() || notification->user_id != current_user_id) {
+            throw ServiceError(404, "notification not found.");
+        }
+        notification->status = NotificationStatus::READ;
+        notification->read_at = NowIso();
+        postgres_store_->UpsertNotification(notification.value());
+        return notification.value();
+    });
 }
 
 NotificationMode GatherlyService::SetNotificationMode(NotificationMode mode) {
@@ -380,34 +455,46 @@ NotificationMode GatherlyService::SetNotificationMode(NotificationMode mode) {
 }
 
 int64_t GatherlyService::ProcessOutbox() {
-    int64_t delivered = 0;
-    for (NotificationOutboxRecord record : postgres_store_->ListPendingOutbox()) {
-        if (notification_mode_ == NotificationMode::FAILING) {
-            record.status = OutboxStatus::FAILED;
-            record.last_error = "fake notification channel failure";
+    const auto start = std::chrono::steady_clock::now();
+    int64_t failed = 0;
+    auto delivered_count = postgres_store_->InTransaction([&] {
+
+        int64_t delivered = 0;
+        for (NotificationOutboxRecord record : postgres_store_->ListPendingOutbox()) {
+            if (notification_mode_ == NotificationMode::FAILING) {
+                record.status = OutboxStatus::FAILED;
+                record.last_error = "fake notification channel failure";
+            ++failed;
+                ++record.attempts;
+                postgres_store_->UpsertOutboxRecord(record);
+                continue;
+            }
+
+            Notification notification;
+            notification.id = postgres_store_->NextNotificationId();
+            notification.user_id = record.user_id;
+            notification.type = record.type;
+            notification.title = record.title;
+            notification.text = record.text;
+            notification.status = NotificationStatus::NEW;
+            notification.created_at = NowIso();
+            postgres_store_->UpsertNotification(notification);
+            ++delivered;
+
+            record.status = OutboxStatus::PROCESSED;
+            record.processed_at = NowIso();
+            record.last_error.reset();
             ++record.attempts;
             postgres_store_->UpsertOutboxRecord(record);
-            continue;
         }
-
-        Notification notification;
-        notification.id = postgres_store_->NextNotificationId();
-        notification.user_id = record.user_id;
-        notification.type = record.type;
-        notification.title = record.title;
-        notification.text = record.text;
-        notification.status = NotificationStatus::NEW;
-        notification.created_at = NowIso();
-        postgres_store_->UpsertNotification(notification);
-        ++delivered;
-
-        record.status = OutboxStatus::PROCESSED;
-        record.processed_at = NowIso();
-        record.last_error.reset();
-        ++record.attempts;
-        postgres_store_->UpsertOutboxRecord(record);
-    }
-    return delivered;
+        return delivered;
+    });
+    auto& metrics = Metrics::Instance();
+    metrics.delivery_success += delivered_count;
+    metrics.delivery_failure += failed;
+    ++metrics.processing_count;
+    metrics.processing_seconds.fetch_add(std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+    return delivered_count;
 }
 
 std::vector<NotificationOutboxRecord> GatherlyService::ListOutbox() const {
@@ -437,7 +524,9 @@ void GatherlyService::StartOutboxWorker() {
             ticks = 0;
             try {
                 ProcessOutbox();
-            } catch (...) {
+            } catch (const std::exception&) {
+                ++Metrics::Instance().processing_errors;
+                std::cerr << "Outbox processing failed; will retry.\n";
             }
         }
     });
@@ -510,7 +599,8 @@ void GatherlyService::ValidateEventCommand(const EventCommand& command) const {
     if (command.description.size() > 2000) {
         throw ServiceError(400, "description is too long.");
     }
-    if (!command.ends_at.empty() && command.ends_at <= command.starts_at) {
+    const auto start = TimestampMicros(command.starts_at);
+    if (!command.ends_at.empty() && TimestampMicros(command.ends_at) <= start) {
         throw ServiceError(400, "ends_at must be later than starts_at.");
     }
     if (command.participant_limit < 0) {

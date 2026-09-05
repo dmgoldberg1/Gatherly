@@ -12,7 +12,7 @@ class Json {
 public:
     using Array = std::vector<Json>;
     using Object = std::map<std::string, Json>;
-    using Value = std::variant<std::nullptr_t, bool, double, std::string, Array, Object>;
+    using Value = std::variant<std::nullptr_t, bool, int64_t, double, std::string, Array, Object>;
 
     Json();
     Json(std::nullptr_t);

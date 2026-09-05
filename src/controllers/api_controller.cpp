@@ -1,5 +1,7 @@
 #include "controllers/api_controller.h"
 
+#include <charconv>
+#include <iostream>
 #include <fstream>
 #include <sstream>
 
@@ -62,7 +64,12 @@ std::string ContentTypeForPath(const std::string& path) {
 }
 
 int64_t ParseId(const std::string& value) {
-    return std::stoll(value);
+    int64_t id = 0;
+    const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), id);
+    if (error != std::errc{} || end != value.data() + value.size() || id < 0) {
+        throw ServiceError(400, "invalid numeric parameter.");
+    }
+    return id;
 }
 
 std::string StripBearer(std::string value) {
@@ -90,8 +97,11 @@ HttpResponse ApiController::Handle(const HttpRequest& request) {
         return HandleStatic(request);
     } catch (const ServiceError& error) {
         return JsonResponse(error.StatusCode(), ErrorJson(error.what()));
-    } catch (const std::exception& error) {
+    } catch (const std::invalid_argument& error) {
         return JsonResponse(400, ErrorJson(error.what()));
+    } catch (const std::exception&) {
+        std::cerr << "API request failed: internal error.\n";
+        return JsonResponse(500, ErrorJson("internal server error."));
     }
 }
 
@@ -123,6 +133,11 @@ HttpResponse ApiController::HandleApi(const HttpRequest& request) {
 
     if (request.method == "GET" && request.path == "/api/v1/me") {
         return JsonResponse(200, ToJson(service_.GetUser(RequireAuth(request))));
+    }
+
+    if (request.method == "GET" && request.path == "/api/v1/me/events") {
+        const auto page = PageFromRequest(request);
+        return JsonResponse(200, PageJson(ToArray(service_.ListOwnedEvents(RequireAuth(request), page)), page));
     }
 
     if (request.method == "GET" && request.path == "/api/v1/me/participations") {
@@ -273,7 +288,9 @@ HttpResponse ApiController::TextResponse(int status, const std::string& text, co
 }
 
 Json ApiController::ReadBody(const HttpRequest& request) const {
-    return Json::Parse(request.body);
+    const auto body = Json::Parse(request.body);
+    if (!body.IsObject()) throw ServiceError(400, "JSON object required.");
+    return body;
 }
 
 int64_t ApiController::RequireAuth(const HttpRequest& request) const {
@@ -293,10 +310,10 @@ PageRequest ApiController::PageFromRequest(const HttpRequest& request) const {
     const std::string limit = QueryParam(request, "limit");
     const std::string offset = QueryParam(request, "offset");
     if (!limit.empty()) {
-        page.limit = std::stoll(limit);
+        page.limit = ParseId(limit);
     }
     if (!offset.empty()) {
-        page.offset = std::stoll(offset);
+        page.offset = ParseId(offset);
     }
     if (page.limit <= 0 || page.limit > 100) {
         throw ServiceError(400, "limit must be in range 1..100.");
