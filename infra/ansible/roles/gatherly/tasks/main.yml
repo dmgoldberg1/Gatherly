@@ -83,7 +83,9 @@
   register: stack_start
   changed_when: stack_start.stderr_lines | reject("search", "migrate") | select("search", "Started|Created|Recreated") | list | length > 0
 - name: Reload Prometheus configuration without replacing its container
-  ansible.builtin.command: docker compose -f docker-compose.prod.yml kill -s SIGHUP prometheus
+  # docker compose kill marks the container as manually stopped, even for HUP,
+  # which breaks unless-stopped startup after a VM reboot. Signal from inside.
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml exec -T prometheus /bin/sh -c 'kill -HUP 1'
   args: {chdir: "{{ gatherly_root }}"}
   changed_when: false
   when: stack_files.changed
@@ -135,6 +137,14 @@
   ansible.builtin.command: docker compose -f docker-compose.prod.yml exec -T gatherly curl --fail --silent --max-time 6 http://localhost:8080/ready
   args: {chdir: "{{ gatherly_root }}"}
   changed_when: false
+- name: Verify Prometheus readiness
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO- http://localhost:9090/-/ready
+  args: {chdir: "{{ gatherly_root }}"}
+  changed_when: false
+  register: prometheus_readiness
+  retries: 12
+  delay: 5
+  until: prometheus_readiness.rc == 0
 - name: Verify Grafana
   ansible.builtin.uri:
     url: http://127.0.0.1:3000/api/health
