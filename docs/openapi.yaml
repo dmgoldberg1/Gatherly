@@ -1,36 +1,13 @@
 openapi: 3.0.3
 info:
   title: Gatherly API
-  version: 0.2.0
+  version: 0.1.0
   description: API платформы неформальных событий с подписками, участием, уведомлениями, outbox worker и пагинацией limit/offset.
 servers:
   - url: http://localhost:8080/api/v1
-  - url: /api/v1
 security:
   - bearerAuth: []
 paths:
-  /health:
-    servers: [{url: "http://localhost:8080"}, {url: /}]
-    get:
-      security: []
-      summary: Liveness без обращения к БД
-      responses:
-        '200': {description: Процесс отвечает}
-  /ready:
-    servers: [{url: "http://localhost:8080"}, {url: /}]
-    get:
-      security: []
-      summary: Внутренний readiness, соединение с БД и версия миграций
-      responses:
-        '200': {description: База и схема готовы}
-        '503': {description: Зависимости недоступны}
-  /metrics:
-    servers: [{url: "http://localhost:8080"}, {url: /}]
-    get:
-      security: []
-      summary: Внутренние метрики Prometheus, закрыты Nginx
-      responses:
-        '200': {description: Метрики в текстовом формате Prometheus}
   /auth/register:
     post:
       security: []
@@ -62,15 +39,6 @@ paths:
       summary: Получить профиль текущего пользователя
       responses:
         '200': { description: Текущий пользователь }
-        '401': { description: Требуется авторизация }
-  /me/events:
-    get:
-      summary: Получить собственные события всех статусов
-      parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Offset'
-      responses:
-        '200': { description: Страница событий текущего организатора, включая DRAFT и CANCELLED }
         '401': { description: Требуется авторизация }
   /me/participations:
     get:
@@ -257,8 +225,6 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
-      description: JWT HS256 действует 24 часа. После истечения срока нужно войти снова.
   parameters:
     Id:
       name: id
