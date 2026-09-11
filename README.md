@@ -32,7 +32,7 @@ docker compose up --build -d --wait
 docker compose ps
 ```
 
-Приложение доступно на http://localhost:8080. База данных готовится автоматически.
+Приложение доступно на http://localhost:8080.
 
 Проверка API и запуск Swagger UI:
 
@@ -144,8 +144,7 @@ chmod 600 infra/ansible/secrets.yml
   значения, каждое сгенерированное через `openssl rand -hex 32`;
 - `domain: meet-greet.<PUBLIC_IP>.sslip.io` и `enable_https: true` для HTTPS.
 
-Адрес sslip.io позволяет обойтись без покупки домена. HTTPS настраивается
-автоматически; email для сертификата можно указать в `letsencrypt_email`.
+HTTPS настраивается автоматически; email для сертификата можно указать в `letsencrypt_email`.
 
 ```bash
 ANSIBLE_CONFIG=infra/ansible/ansible.cfg \
@@ -189,9 +188,3 @@ yc compute instance start "$(terraform -chdir=infra/terraform output -raw instan
 
 Диск и статический IP сохраняются. Terraform state нужен для дальнейшего
 управления инфраструктурой — сохраните его вместе с локальными настройками.
-
-## Исходная документация
-
-В `docs/` сохранены материалы исходного MVP: [требования](docs/requirements.md),
-[сценарии](docs/use-cases.md), [ER-диаграмма](docs/er-diagram.md),
-[диаграммы последовательности](docs/sequence-diagram.md) и [OpenAPI](docs/openapi.yaml).
