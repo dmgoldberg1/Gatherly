@@ -11,10 +11,10 @@ import urllib.request
 import time
 
 if __package__:
-    from .control import atomic_json, render, validate
+    from .control import atomic_json, documents, render, validate, envoy
     from . import backend
 else:
-    from control import atomic_json, render, validate
+    from control import atomic_json, documents, render, validate, envoy
     import backend
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -173,6 +173,7 @@ def monitoring(hosts):
 
 
 def files(config, output, runtime, mode):
+    config = validate(config)
     if output.get('layout') == 'compact':
         return compact_files(config, output, runtime, mode)
     hosts = output['hosts']
@@ -210,8 +211,9 @@ def files(config, output, runtime, mode):
         elif host['role'] == 'proxy':
             addresses = [host['private_ip'] for host in hosts.values() if host['role'] == 'app']
             render(config, addresses, directory)
-            services['envoy'] = {'image': 'envoyproxy/envoy:v1.37.1', 'command': ['-c', '/etc/envoy/bootstrap.json', '--concurrency', '2'], 'ports': ['8080:8080', '127.0.0.1:9901:9901'], 'volumes': ['./bootstrap.json:/etc/envoy/bootstrap.json:ro', './dynamic:/etc/envoy/dynamic:ro'], 'restart': 'unless-stopped'}
+            services['envoy'] = {'image': config['envoy_profile']['image'], 'entrypoint': ['envoy'], 'command': ['-c', '/etc/envoy/bootstrap.json', '--concurrency', '2'], 'ports': ['8080:8080', '127.0.0.1:9901:9901'], 'volumes': ['./bootstrap.json:/etc/envoy/bootstrap.json:ro', './dynamic:/etc/envoy/dynamic:ro'], 'restart': 'unless-stopped'}
             shutil.copyfile(ROOT / 'bench/control.py', directory / 'control.py')
+            shutil.copyfile(ROOT / 'bench/envoy.py', directory / 'envoy.py')
             shutil.copyfile(ROOT / 'bench/defaults.json', directory / 'defaults.json')
         elif host['role'] == 'monitoring':
             # Mount the directory so an atomic config replacement is visible on HUP.
@@ -242,10 +244,12 @@ def files(config, output, runtime, mode):
 
 
 def deploy(config, mode):
+    config = validate(config)
     # Validate secrets before Terraform can make any changes.
     for key in ('BENCH_DB_PASSWORD', 'BENCH_AUTH_SECRET'):
         if not os.environ.get(key) or len(os.environ[key]) < 32:
             raise ValueError('missing or short ' + key)
+    envoy.validate_native(config, documents(config, [f'127.0.0.{i}' for i in range(1, config['replicas'] + 1)]), STATE / 'envoy-validation.json')
     if mode == 'deploy':
         tag = os.getenv('GITHUB_SHA', 'local')[:40]
         runtime = {'app_image': 'gatherly-bench-app:' + tag, 'worker_image': 'gatherly-bench-worker:' + tag}

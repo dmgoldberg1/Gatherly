@@ -1,0 +1,9 @@
+name: ring-hash
+cluster:
+  lb_policy: RING_HASH
+  ring_hash_lb_config:
+    minimum_ring_size: 1024
+route:
+  hash_policy:
+    - header:
+        header_name: X-Bench-Key

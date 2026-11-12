@@ -89,6 +89,9 @@
   become: true
   gather_facts: false
   tasks:
+    - name: Migrate an existing static-route proxy to the dynamic bootstrap
+      ansible.builtin.command: python3 control.py reconcile --admin http://127.0.0.1:9901
+      args: {chdir: /opt/gatherly-bench}
     - name: Start proxy without rebuilding images
       ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d
       args: {chdir: /opt/gatherly-bench}
@@ -135,6 +138,9 @@
       when: bench_mode == 'deploy'
     - name: Apply replica count and start the compact stack
       ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d --no-build --remove-orphans
+      args: {chdir: /opt/gatherly-bench}
+    - name: Migrate an existing compact proxy to the dynamic bootstrap
+      ansible.builtin.command: python3 control.py reconcile --admin http://127.0.0.1:9901
       args: {chdir: /opt/gatherly-bench}
     - name: Reload monitoring targets
       ansible.builtin.command: docker compose -p gatherly-bench -f compose.json exec -T prometheus /bin/sh -c 'kill -HUP 1'

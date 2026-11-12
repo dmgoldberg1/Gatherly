@@ -1,0 +1,82 @@
+{
+  "checked_on": "2026-11-12",
+  "state": {
+    "bucket": "gatherly-bench-state-umpui6harn",
+    "key": "gatherly-bench/terraform.tfstate",
+    "lineage": "256f550f-66a3-9465-1ac3-1cf9deb88c5b",
+    "serial": 42,
+    "sha256": "8ecde040d20179fa8061442e4b36420efa403f9cd1a8bcda588b9c2d6796e350",
+    "remote_copy_verified": true,
+    "local_backend_unchanged": false,
+    "local_backup_retained": true,
+    "backup_file": "infra/terraform/bench/terraform.tfstate.backup",
+    "repeat_migration_verified": true,
+    "anonymous_get_http_status": 403
+  },
+  "first_run_config": {
+    "version": 1,
+    "replicas": 1,
+    "policy": "round_robin",
+    "duration": "60s",
+    "feed_rps": 50,
+    "recommendations_rps": 30,
+    "photo_upload_rps": 5,
+    "photo_start_after": "15s",
+    "seed": 42
+  },
+  "github_authentication_verified": true,
+  "repository_secrets_uploaded": true,
+  "ci_service_account_created": true,
+  "terraform_backend_switched": true,
+  "unit_tests": {
+    "passed": 30,
+    "environment": "gatherly-bench-app:local; Python 3.12; network disabled"
+  },
+  "quota_blocker": {
+    "zone": "ru-central1-a",
+    "memory_limit_gib": 16,
+    "memory_used_gib": 16,
+    "memory_required_for_one_replica_gib": 64,
+    "existing_quota_request": "atdiu9g4sa43fmgm8gbl",
+    "status": "PROCESSING"
+  },
+  "maximum_distributed_replicas_tested_this_session": 0,
+  "repository": "dmgoldberg1/Gatherly",
+  "repository_variables_verified": 8,
+  "repository_secrets_verified": 6,
+  "ci_service_account_id": "ajemi2jp4pqgfeqcf7cd",
+  "dedicated_ssh_key_verified_on": [
+    "load",
+    "server"
+  ],
+  "ci_preflight": {
+    "ci_provider_and_s3_access_verified": true,
+    "refresh_only_plan_succeeded": true,
+    "remote_state_lock_acquired_and_released": true,
+    "resource_drift": []
+  },
+  "ci_run": {
+    "id": 43241143264,
+    "url": "https://github.com/dmgoldberg1/Gatherly/actions/runs/43241143264",
+    "workflow": "ci.yml",
+    "ref": "main",
+    "head_sha": "075f29eb1056a34810615e1ad0a4fe63a2ef27a9",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "build-test",
+        "conclusion": "success"
+      },
+      {
+        "name": "infrastructure",
+        "conclusion": "success"
+      },
+      {
+        "name": "publish",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "load_workflow_dispatched": false
+}

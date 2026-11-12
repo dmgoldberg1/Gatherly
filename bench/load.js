@@ -36,6 +36,10 @@ function account() {
   return data.accounts[(exec.scenario.iterationInTest + config.seed) % data.accounts.length];
 }
 
+function headers(extra = {}) {
+  return {'X-Bench-Key': `${config.seed}:${exec.scenario.iterationInTest % 64}`, ...extra};
+}
+
 function record(response, expected) {
   const ok = response.status === expected;
   if (ok) successes.add(1);
@@ -45,11 +49,11 @@ function record(response, expected) {
 }
 
 export function feed() {
-  record(http.get(`${base}/api/v1/events?limit=50`, {tags: {name: 'public_feed'}}), 200);
+  record(http.get(`${base}/api/v1/events?limit=50`, {headers: headers(), tags: {name: 'public_feed'}}), 200);
 }
 
 export function recommendations() {
-  record(http.get(`${base}/api/v1/recommendations?limit=10`, {headers: {Authorization: `Bearer ${account().token}`}, tags: {name: 'recommendations'}}), 200);
+  record(http.get(`${base}/api/v1/recommendations?limit=10`, {headers: headers({Authorization: `Bearer ${account().token}`}), tags: {name: 'recommendations'}}), 200);
 }
 
 export async function photo_upload() {
@@ -69,7 +73,7 @@ export async function photo_upload() {
   const photo = photoBuffer.subarray(0, info.size);
   if (await file.read(photo) !== info.size) throw new Error('Incomplete photo fixture');
   record(http.post(`${base}/api/v1/albums/${user.album_id}/photos`, photo.buffer.slice(0, info.size), {
-    headers: {'Content-Type': 'image/jpeg', 'X-Upload-Token': user.upload_token}, tags: {name: 'photo_upload'}, timeout: '60s',
+    headers: headers({'Content-Type': 'image/jpeg', 'X-Upload-Token': user.upload_token}), tags: {name: 'photo_upload'}, timeout: '60s',
   }), 201);
 }
 

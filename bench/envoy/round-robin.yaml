@@ -1,0 +1,3 @@
+name: round-robin
+cluster:
+  lb_policy: ROUND_ROBIN

@@ -18,7 +18,10 @@ on:
         description: Number of replica VMs (1–10); blank uses versioned defaults
         type: string
       policy:
-        description: round_robin or least_request; blank uses versioned defaults
+        description: Built-in policy; envoy_config_file takes precedence
+        type: string
+      envoy_config_file:
+        description: Native Envoy YAML/JSON profile under bench/envoy/; blank uses policy
         type: string
       duration:
         description: Duration, e.g. 180s
@@ -63,11 +66,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
+      - name: Install profile parser
+        run: python -m pip install PyYAML==6.0.3
       - name: Resolve overrides and validate before cloud changes
         env:
           BENCH_INPUTS: ${{ toJSON(inputs) }}
           BENCH_CONFIG_FILE: ${{ inputs.config_file }}
-        run: python bench/control.py resolve --config "$BENCH_CONFIG_FILE" --overrides-env BENCH_INPUTS --output config.json
+        run: python bench/control.py resolve --config "$BENCH_CONFIG_FILE" --overrides-env BENCH_INPUTS --output config.json --check-envoy --validation-report envoy-validation.json
       - name: Show the effective configuration
         run: python bench/report.py --config config.json --config-only --output "$GITHUB_STEP_SUMMARY"
       - name: Clean only temporary benchmark work files
@@ -75,7 +80,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: effective-config
-          path: config.json
+          path: |
+            config.json
+            envoy-validation.json
           retention-days: 14
   deploy:
     needs: cleanup_workspace

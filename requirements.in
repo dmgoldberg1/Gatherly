@@ -7,3 +7,4 @@ numpy==2.4.3
 boto3==1.42.70
 prometheus-client==0.24.1
 python-multipart==0.0.22
+PyYAML==6.0.3

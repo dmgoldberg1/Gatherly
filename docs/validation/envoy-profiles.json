@@ -1,0 +1,119 @@
+{
+  "replicas": 3,
+  "profiles": [
+    {
+      "policy": "least-request-4-choices",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "94f92cb58efeea77ebb7bbdf4a79babacc657a0f8ebb5f7da56e47b173a171e7",
+      "request_distribution": {
+        "2": 13,
+        "0": 19,
+        "1": 16
+      }
+    },
+    {
+      "policy": "least-request-extension",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "8e13397ffbda0dd9522b8afb7bb8cdb85e96e45743253b49a61255ed1a32e1e6",
+      "request_distribution": {
+        "0": 19,
+        "2": 21,
+        "1": 8
+      }
+    },
+    {
+      "policy": "least-request",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "c4af6d0af1e6a5920abdbd0ca7cf513f981272441e02ca2d888958ac301010fe",
+      "request_distribution": {
+        "0": 18,
+        "1": 20,
+        "2": 10
+      }
+    },
+    {
+      "policy": "maglev",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "b74455d5a7a8777adcaff3493d5cb91fa09520d916410035e0a4b8954dfad435",
+      "stable_hash_key_verified": true,
+      "request_distribution": {
+        "0": 12,
+        "2": 12,
+        "1": 24
+      }
+    },
+    {
+      "policy": "random",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "45eb7c09e7b9cd348aa710f50121ed90a2e069c7650bb332a2c9c66b40fcf261",
+      "request_distribution": {
+        "1": 18,
+        "0": 11,
+        "2": 19
+      }
+    },
+    {
+      "policy": "ring-hash",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "2fb46de4d9c5f9ea61c5b4f31bee3740b1b93064f8458b7ad99e92368884a47a",
+      "stable_hash_key_verified": true,
+      "request_distribution": {
+        "0": 20,
+        "1": 16,
+        "2": 12
+      }
+    },
+    {
+      "policy": "round-robin",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "3b21b22fc8dbb28a313dc698d7193ffb956c28b4f25410b0d8c20ad295404785",
+      "request_distribution": {
+        "0": 16,
+        "2": 16,
+        "1": 16
+      }
+    },
+    {
+      "policy": "weighted-round-robin",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "d0ad08e940982380d099673397100445b071f16212f09304524659ac7dbc4abf",
+      "request_distribution": {
+        "1": 24,
+        "0": 12,
+        "2": 12
+      }
+    },
+    {
+      "policy": "custom-route-and-health-settings",
+      "healthy_replicas": 3,
+      "cds_verified": true,
+      "rds_verified": true,
+      "profile_sha256": "ba8c4d8698c8697f9fd52664e53910c35a4518b2179acaa152c6effa08d2142a",
+      "request_distribution": {
+        "2": 13,
+        "1": 15,
+        "0": 20
+      }
+    }
+  ],
+  "invalid_native_field_rejected": true,
+  "rejected_live_update_detected": true,
+  "proxy_not_restarted": true,
+  "unchanged_bootstrap_recognized": true
+}

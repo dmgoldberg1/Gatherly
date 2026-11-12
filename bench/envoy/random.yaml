@@ -1,0 +1,3 @@
+name: random
+cluster:
+  lb_policy: RANDOM

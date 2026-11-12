@@ -1,5 +1,7 @@
 # Sequence diagrams
 
+**Русский** | [English](sequence-diagram.en.md)
+
 ## Публикация события с созданием уведомлений
 
 ```mermaid

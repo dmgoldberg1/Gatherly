@@ -56,6 +56,8 @@ class CloudRoleIsolationTest(unittest.TestCase):
     def test_configuration_update_refuses_database_replacement_before_apply(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            terraform = root / 'terraform'
+            terraform.mkdir()
             (root / 'ssh-key.pub').write_text('test-public-key')
             environment = {'YC_CLOUD_ID': 'test-cloud', 'YC_FOLDER_ID': 'test-folder',
                            'BENCH_BUCKET': 'test-bucket', 'BENCH_SSH_KEY': str(root / 'ssh-key'),
@@ -65,7 +67,8 @@ class CloudRoleIsolationTest(unittest.TestCase):
             def command(args, **kwargs):
                 return json.dumps(planned) if 'show' in args else ''
             config = json.loads((cloud.ROOT / 'bench/defaults.json').read_text())
-            with patch.object(cloud, 'WORK', root), patch.dict(os.environ, environment, clear=True), patch.object(cloud, 'run', side_effect=command) as run:
+            with patch.object(cloud, 'WORK', root), patch.object(cloud, 'TF', terraform), \
+                    patch.dict(os.environ, environment, clear=True), patch.object(cloud, 'run', side_effect=command) as run:
                 with self.assertRaisesRegex(ValueError, 'Refusing to delete'):
                     cloud.terraform(config, apply=True, update_only='config')
             self.assertFalse(any('apply' in call.args[0] for call in run.call_args_list))

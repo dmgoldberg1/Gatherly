@@ -1,303 +1,220 @@
-# Gatherly
+# Gatherly — сравнение алгоритмов балансировки
 
-Платформа для неформальных встреч: события, подписки, участие с очередью ожидания,
-уведомления, фотоальбомы и персональные рекомендации. Веб-интерфейс и HTTP API
-работают с FastAPI, Uvicorn и PostgreSQL через Psycopg 3. Сохраняется совместимость
-с существующими HTTP-маршрутами, данными, PBKDF2-хешами и JWT. Для сохранения
-действующих сессий используйте прежний `GATHERLY_AUTH_SECRET`.
+**Русский** | [English](README.en.md)
 
-## Локальный запуск
+Стенд для сравнения алгоритмов и параметров балансировки Envoy. Настройки задаются
+YAML-профилем в репозитории. k6 одновременно
+нагружает ленту событий, персональные рекомендации и загрузку фотографий.
+Grafana показывает распределение запросов, задержки и загрузку реплик.
 
-Требуются Docker Engine и Docker Compose v2. Из корня репозитория:
-
-```bash
-cp .env.example .env
-# В .env задайте постоянный GATHERLY_AUTH_SECRET: openssl rand -hex 32
-docker compose up --build -d --wait
-python3 scripts/smoke.py http://localhost:8080
-python3 scripts/compatibility.py http://localhost:8080
+```mermaid
+flowchart LR
+    K6["k6"] --> Envoy["Envoy"] --> App["Gatherly · 3 реплики"]
+    App --> DB[(PostgreSQL)]
+    App --> Storage[(Object Storage)]
+    Prometheus -. метрики .-> App
+    Prometheus -. метрики .-> DB
+    Grafana --> Prometheus
 ```
 
-Интерфейс: http://localhost:8080. Миграции применяются автоматически. При первой
-сборке отдельного CPU-образа `worker` загружаются PyTorch и закреплённая модель.
-Приложение может начать обслуживать обычные запросы раньше, чем появится первая
-подборка рекомендаций. На главной доступны «Рекомендовано вам» и «Фотоальбомы»;
-альбомы конкретной встречи открываются кнопкой в карточке события.
+Ниже — полный путь от пустого облачного каталога до сравнения двух прогонов.
+Весь стенд разворачивается через GitHub Actions; приложение на компьютере запускать не нужно.
+Yandex Cloud CLI (`yc`), Terraform и Ansible локально устанавливать не нужно.
+На компьютере используются только `openssl`, `ssh-keygen` для подготовки ключей и `ssh` для Grafana.
+
+[Документация проекта](docs/README.md).
+
+## 1. Создай свой репозиторий
+
+Открой [Gatherly](https://github.com/dmgoldberg1/Gatherly), нажми **Fork → Create fork**.
+В своём форке перейди в **Actions** и нажми **I understand my workflows, go ahead and enable them**.
+Все дальнейшие действия в GitHub выполняй в своём форке, ветка — `main`.
+
+## 2. Подготовь Yandex Cloud
+
+В [консоли Yandex Cloud](https://console.yandex.cloud/) создай облако с активным
+платёжным аккаунтом и пустой каталог `gatherly-bench`. Сохрани ID облака и каталога:
+они понадобятся в шаге 4.
+
+Для этого примера нужны **7 VM**: три реплики приложения, Envoy, PostgreSQL,
+мониторинг и k6. До запуска увеличь квоты облака до следующих значений:
+
+| Зона | VM | vCPU | RAM | SSD |
+| --- | --- | --- | --- | --- |
+| `ru-central1-a` | 6 | 48 | 96 ГиБ | 120 ГиБ |
+| `ru-central1-d` | 1 | 8 | 16 ГиБ | 20 ГиБ |
+
+Суммарные квоты облака должны разрешать 7 VM и 7 публичных IP.
+
+В каталоге `gatherly-bench` открой **Identity and Access Management**:
+
+1. Создай сервисный аккаунт `gatherly-ci`.
+2. Назначь ему роли **на каталог `gatherly-bench`**: `compute.editor`, `vpc.admin`,
+   `iam.serviceAccounts.admin`, `iam.serviceAccounts.accessKeyAdmin`, `storage.admin`.
+3. На странице аккаунта нажми **Создать новый ключ → Создать авторизованный ключ**
+   и скачай JSON-файл.
+4. Там же создай **статический ключ доступа**. Сохрани оба значения:
+   идентификатор ключа (`key_id`) и секретный ключ (`secret`).
+
+Эти права позволяют CI создавать ресурсы только в выделенном каталоге.
+[Инструкция Yandex Cloud по сервисным аккаунтам](https://yandex.cloud/ru/docs/iam/operations/sa/create).
+
+Перейди в **Object Storage** и создай бакет `gatherly-state-<FOLDER_ID>`,
+подставив ID созданного каталога. Доступ к объектам и списку объектов — закрытый.
+В настройках бакета включи **версионирование**. Здесь GitHub Actions будет хранить
+Terraform state между запусками. Бакет фотографий создаст сам workflow.
+
+## 3. Подготовь SSH-ключ и пароли
+
+В терминале Linux/macOS выполни команды с установленными `openssl` и `ssh-keygen`:
 
 ```bash
-docker compose --profile docs up -d swagger-ui  # http://localhost:8081
-docker compose logs --tail=100 gatherly worker
-docker compose down                           # тома данных сохраняются
+umask 077
+mkdir -p ~/.gatherly-bench
+ssh-keygen -t ed25519 -N '' -C gatherly-bench -f ~/.gatherly-bench/ssh-key
+openssl rand -hex 32 | tr -d '\n' > ~/.gatherly-bench/db-password
+openssl rand -hex 32 | tr -d '\n' > ~/.gatherly-bench/auth-secret
 ```
 
-Для запуска без Docker используйте Python 3.12, PostgreSQL и зависимости из
-`requirements.txt`; для фонового процесса — `requirements-worker.txt`. Примените
-SQL-миграции через `scripts/migrate.sh`, задав PGHOST/PGUSER/PGPASSWORD/PGDATABASE
-и смонтировав `db/migrations` в `/migrations`. Затем задайте
-`GATHERLY_DATABASE_URL`, `GATHERLY_AUTH_SECRET` и общий `GATHERLY_STORAGE_DIR`:
+Сохрани скачанный JSON-ключ сервисного аккаунта как `~/.gatherly-bench/yc-key.json`.
+Эти файлы используй во всех последующих запусках того же стенда.
 
-```bash
-uvicorn gatherly.main:app --host 0.0.0.0 --port 8080 --workers 1
-python -m gatherly.worker  # в отдельном процессе с тем же хранилищем и БД
-```
+## 4. Заполни настройки GitHub Actions
 
-Сборка и CI используют Python.
+В своём форке открой **Settings → Secrets and variables → Actions**.
+На вкладке **Variables** через **New repository variable** добавь:
 
-## Фотоальбомы
-
-Организатор и участник со статусом `GOING` могут создать альбом события.
-`POST /api/v1/albums` возвращает альбом и подписанный токен на 600 секунд.
-`POST /api/v1/albums/{id}/photos` принимает JPEG, PNG или WebP как бинарное тело
-с `X-Upload-Token`. Проверка подписи, принадлежности альбому и срока действия,
-декодирование Pillow, миниатюра 320 px и галерейная версия 1600 px не используют
-SQL. Обработка идёт в ограниченном пуле потоков; HTTP-запрос завершается после
-сохранения обоих вариантов и маркера готовности. EXIF не переносится в результат.
-
-По умолчанию: вход до 12 МиБ и 24 млн пикселей, две параллельные обработки и
-четыре ожидающих запроса на реплику. Переполненная очередь возвращает 429.
-Настройки: `GATHERLY_PHOTO_MAX_BYTES`, `GATHERLY_PHOTO_MAX_PIXELS`,
-`GATHERLY_PHOTO_CONCURRENCY`. Прокси также ограничивает размер тела запроса.
-
-Загрузка возвращает подписанный `receipt`. При публикации передайте до 100
-квитанций в `POST /api/v1/albums/{id}/publish`, JSON `{"receipts":[...]}`.
-Готовность объектов проверяется до короткой транзакции, а метаданные вставляются
-пакетно под блокировкой альбома. Одинаковый повтор возвращает опубликованный
-альбом; другой набор фото — 409. Незавершённые загрузки остаются в staging:
-автоматического удаления опубликованных фото по сроку нет.
-`POST /api/v1/albums/{id}/upload-token` обновляет токен владельцу черновика.
-
-Compose использует общий том `/data`. В облаке задаются `GATHERLY_S3_BUCKET`,
-`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; boto3 обращается к приватному
-Yandex Object Storage. Просмотр проверяет доступ к событию и возвращает
-короткоживущие ссылки. Полный контракт: [docs/openapi.yaml](docs/openapi.yaml).
-
-## Рекомендации
-
-`GET /api/v1/recommendations?limit=10&offset=0` возвращает события, `score`,
-`source` (`personalized` или `popular`) и `generation` снимка.
-Один избранный процесс использует Sentence Transformers на CPU:
-`cointegrated/rubert-tiny2`, ревизия
-`e8ed3b0c8bbf4fb6984c3de043bf7d2f4e5969ae`. Ревизия фиксирована в коде,
-модель загружается при сборке worker-образа. Реплики не загружают PyTorch и модель.
-
-Вектор события вычисляется из названия и описания при их изменении. Worker
-публикует неизменяемый NumPy-снимок каталога и атомарно обновляет указатель на него.
-При неизменившихся данных новая генерация не создаётся. Реплики проверяют
-указатель каждые три секунды, сохраняя старый снимок при ошибке обновления.
-
-Для MVP **прошедшее событие со статусом участия `GOING` считается посещённым**.
-При наличии `ends_at` событие считается прошедшим после окончания, иначе —
-после `starts_at`. Профиль — нормированное взвешенное среднее векторов таких событий; период
-полураспада веса — 30 дней. Компактный профиль хранится в PostgreSQL. Предстоящие
-публичные события ранжируются NumPy по косинусному сходству; любые уже имеющиеся
-участия исключаются. При пустой истории используется популярность по числу
-участников `GOING` и стабильный порядок по id при равенстве.
-
-Авторизация рекомендаций и профиль кэшируются на реплике на 30 секунд
-(`GATHERLY_PROFILE_CACHE_SECONDS`). При тёплом кэше **весь запрос, включая проверку
-JWT и пользователя, не обращается к SQL**. Смена генерации сбрасывает кэш профилей;
-первый запрос после неё или истечения TTL обращается к БД. Изменения участия на
-другой реплике становятся видимыми после обновления снимка или истечения TTL.
-
-## Локальный нагрузочный стенд
-
-Отдельный Compose-проект `gatherly-bench` содержит PostgreSQL, один worker,
-от 1 до 100 контейнеров приложения и Envoy. Он не использует данные обычного
-Compose или проекта `gatherly-check`.
-
-```bash
-docker build -t gatherly:python-check .
-docker build -f Dockerfile.worker -t gatherly-worker:check .
-python3 bench/control.py resolve --output .local/bench-config.json
-python3 bench/local.py deploy --config .local/bench-config.json
-python3 bench/local.py test --config .local/bench-config.json
-```
-
-Приложение через Envoy: http://localhost:18090. Admin API Envoy доступен только
-на локальном http://localhost:19901. Для изменения политики или числа реплик
-отредактируйте тот же JSON и выполните:
-
-```bash
-python3 bench/local.py update_config --config .local/bench-config.json
-```
-
-Обновление использует текущие локальные образы и не пересоздаёт PostgreSQL или
-том данных. Перед тестом проверяются реально активная политика Envoy и точное
-число здоровых backend-адресов. CDS заменяется атомарно внутри смонтированного
-каталога; перезапуск Envoy при переключении политики не нужен.
-
-`bench/local.py test` готовит детерминированные аккаунты, различную историю,
-токены, альбомы и три размера фото, затем запускает три сценария k6 с постоянным
-темпом поступления запросов. Для сравнения политик используйте одинаковые seed,
-RPS и длительность. Загрузка фото начинается через `photo_start_after`.
-В длинных прогонах токены загрузки обновляются отдельными служебными запросами;
-эти запросы не входят в метрики сценария загрузки. Отчёты находятся в
-`.local/bench/run/results/{report,summary}.json`.
-
-## Стенд Yandex Cloud и GitHub Actions
-
-Workflow [load-bench.yml](.github/workflows/load-bench.yml) запускается вручную.
-Пошаговая настройка secrets, перенос существующего state и первый запуск:
-[docs/github-actions.md](docs/github-actions.md).
-Топология: 1–10 отдельных VM приложения, отдельные VM Envoy, PostgreSQL с
-единственным worker, мониторинга (Prometheus/Grafana) и k6, приватный Object Storage.
-Параметр `replicas` определяет число VM приложения; всего создаётся `replicas + 4` VM.
-Используются отдельный модуль `infra/terraform/bench`, существующая роль Docker
-и playbook `infra/ansible/bench.yml`. Обычный модуль демо не изменяется.
-
-Версионируемые значения по умолчанию: [bench/defaults.json](bench/defaults.json).
-Пустые поля запуска сохраняют эти значения; заданные поля переопределяют их.
-Поле `config_file` выбирает JSON внутри `bench/`. Для минутного прогона есть
-[bench/configs/one-minute.json](bench/configs/one-minute.json), в нём по умолчанию
-3 реплики; поле `replicas` в Actions переопределяет их число в диапазоне 1–10.
-
-| Параметр | По умолчанию |
+| Имя | Значение |
 | --- | --- |
-| `replicas` | 3, диапазон 1–10 |
-| `policy` | `round_robin`; также `least_request` |
-| `duration` | `180s` |
-| `feed_rps` | 50 |
-| `recommendations_rps` | 30 |
-| `photo_upload_rps` | 5 |
-| `photo_start_after` | `60s` |
-| `seed` | 42 |
+| `YC_CLOUD_ID` | ID созданного облака |
+| `YC_FOLDER_ID` | ID каталога `gatherly-bench` |
+| `YC_ZONE` | `ru-central1-a` |
+| `BENCH_LOAD_ZONE` | `ru-central1-d` |
+| `BENCH_STAND_NAME` | `gatherly-bench` |
+| `BENCH_BUCKET` | `gatherly-media-<FOLDER_ID>`, с подставленным ID каталога |
+| `BENCH_STATE_BUCKET` | Имя созданного бакета `gatherly-state-<FOLDER_ID>` |
+| `BENCH_PREEMPTIBLE` | `true` |
 
-Поддерживаются целые длительности от 1 до 3600 секунд и RPS от 0 до 10000;
-хотя бы один сценарий должен быть включён. Если загрузка фото включена,
-`photo_start_after` должен быть меньше длительности. Конфиг валидируется до
-изменений облака и единым артефактом передаётся между джобами.
+На вкладке **Secrets** через **New repository secret** добавь:
 
-Для репозитория настройте Actions variables:
+| Имя | Значение |
+| --- | --- |
+| `YC_SA_KEY_JSON` | Полное содержимое `~/.gatherly-bench/yc-key.json` |
+| `BENCH_STATE_ACCESS_KEY` | `key_id` статического ключа из шага 2 |
+| `BENCH_STATE_SECRET_KEY` | `secret` статического ключа из шага 2 |
+| `BENCH_SSH_PRIVATE_KEY` | Полное содержимое `~/.gatherly-bench/ssh-key`, включая строки BEGIN/END |
+| `BENCH_DB_PASSWORD` | Содержимое `~/.gatherly-bench/db-password`, ровно 64 символа |
+| `BENCH_AUTH_SECRET` | Содержимое `~/.gatherly-bench/auth-secret` |
 
-- `YC_CLOUD_ID`, `YC_FOLDER_ID`, при необходимости `YC_ZONE` (по умолчанию `ru-central1-a`);
-- `BENCH_BUCKET` — глобально уникальное имя бакета фото/снимков, создаваемого Terraform;
-- `BENCH_STATE_BUCKET` — заранее созданный приватный бакет Terraform state;
-- при необходимости `BENCH_SUBNET_ID` и `BENCH_STAND_NAME`.
+Итого: **8 variables и 6 secrets**. Файлы с ключами и паролями остаются на твоём компьютере.
 
-По умолчанию используется `BENCH_LAYOUT=distributed`: каждая реплика,
-Envoy, PostgreSQL и мониторинг размещаются на отдельных VM в `ru-central1-a`;
-отдельная VM k6 находится в `ru-central1-d` (`BENCH_LOAD_ZONE`). Каждая VM имеет
-**8 vCPU, 16 ГиБ RAM и SSD 20 ГиБ**. Например, `replicas=1` даёт 5 VM,
-`replicas=3` — 7 VM, `replicas=10` — 14 VM. Имя `app-001` … `app-N` и число
-ресурсов Terraform получаются из `replicas`, фиксированного количества реплик нет.
-При `update_config` Terraform добавляет или удаляет только нужные VM приложения,
-затем обновляются адреса Envoy и цели Prometheus. БД, мониторинг, Envoy и k6
-сохраняются. Значения вне 1–10 отвергаются до облачных изменений.
+## 5. Запусти первый прогон
 
-Первый переход с компактного размещения выполняется через `deploy`: существующая
-VM с БД сохраняется и получает роль `database`. После готовности отдельных
-реплик и Envoy старые контейнеры приложения и мониторинга на VM БД удаляются,
-том PostgreSQL сохраняется. Последующие изменения `replicas` выполняются через
-`update_config`. Замена или удаление VM БД блокируются проверкой Terraform-плана.
+Открой **Actions → Gatherly cloud load benchmark → Run workflow**.
+Выбери ветку `main` и заполни поля:
 
-Квоты CPU, RAM, SSD и IP учитываются суммарно. Для максимальных 10 реплик нужны
-14 VM, 112 vCPU, 224 ГиБ RAM и 280 ГиБ SSD. Компактный режим
-`BENCH_LAYOUT=compact` сохранён для локальных ограниченных стендов;
-в нём реплики делят ресурсы одного сервера.
+| Поле | Значение |
+| --- | --- |
+| `mode` | `deploy_and_test` |
+| `config_file` | `bench/configs/one-minute.json` |
+| `replicas` | `3` |
+| `envoy_config_file` | `bench/envoy/round-robin.yaml` |
 
-Образы передаются на компактный сервер сжатыми потоками без сохранения архивов
-на его SSD. На новых компактных VM Docker использует `overlay2`, чтобы
-не хранить одновременно сжатые и распакованные слои. Уже заполненный Docker
-store автоматически не переключается. Для k6 изображения тестового набора
-разделяются между VU через `k6/experimental/fs` в закреплённой версии k6.
-Бинарный буфер выделяется только при загрузке фото; на VM k6 с 16 ГиБ RAM
-используется мягкий лимит памяти Go `GOMEMLIMIT=8GiB`.
+Остальные поля оставь без изменений и нажми **Run workflow**.
+Дождись завершения цепочки `cleanup_workspace → deploy → load_test`.
+Workflow сам соберёт образы, создаст VM, применит миграции и подготовит тестовые данные.
 
-По умолчанию VM нагрузочного стенда прерываемые (`preemptible = true`).
-Для обычных VM задайте Actions variable или переменную окружения
-`BENCH_PREEMPTIBLE=false`. Прерываемая VM может быть остановлена провайдером
-в любой момент и работает не дольше 24 часов за один запуск; прерванный
-нагрузочный прогон нужно повторить. Этот режим не увеличивает квоты CPU и дисков.
+Конфиг прогона хранится в [bench/configs/one-minute.json](bench/configs/one-minute.json):
 
-И Actions secrets:
-
-- `YC_SA_KEY_JSON` — JSON-ключ сервисного аккаунта с правами управлять VM, сетью,
-  бакетом стенда и сервисным аккаунтом доступа к объектам;
-- `BENCH_STATE_ACCESS_KEY`, `BENCH_STATE_SECRET_KEY` — доступ к бакету state;
-- `BENCH_SSH_PRIVATE_KEY` — отдельный SSH-ключ стенда;
-- `BENCH_DB_PASSWORD` — 64 hex-символа, `BENCH_AUTH_SECRET` — постоянный секрет не короче 32 байт.
-
-Пароли и ключи должны сохраняться между запусками и режимами обновления.
-Terraform state хранит чувствительные данные и не включается в артефакты.
-Для S3 backend используется шаблон `backend.s3.tf.example`; рабочий `backend.tf`
-создаётся только в окружении запуска. Каждый стенд использует ключ
-`<BENCH_STAND_NAME>/terraform.tfstate` с блокировкой S3 `use_lockfile`.
-Существующий локальный state переносится командой `migrate_state`; запуск
-с другим или более новым удалённым state не перезаписывает его.
-Локальный запуск `bench/cloud.py` без
-`BENCH_STATE_BUCKET` использует отдельный локальный state модуля bench.
-
-Режимы:
-
-- `deploy_and_test`: `cleanup_workspace → deploy → load_test`;
-- `update_config`: `cleanup_workspace → update_config`, с `run_load_test=true`
-  дополнительно запускается `load_test`.
-
-Операции с одним стендом сериализованы через Actions concurrency, отмены текущего
-прогона нет. Очистка затрагивает только `.local/bench/work`; state, архивы текущих
-образов, БД и объекты сохраняются. Deploy собирает образы Python и CPU-worker и
-передаёт их VM, не требуя публичного контейнерного registry. Update использует
-сохранённые образы действующего стенда: число реплик меняется отдельно от
-PostgreSQL и Object Storage, политика меняется через CDS, RPS и длительность
-получает только k6. Повтор того же конфига безопасен.
-
-SSH и вход на стенд разрешаются для IPv4 `/32` текущего runner. Перед отдельным
-`load_test`-джобом правило доступа обновляется для его runner; образ приложения,
-БД, бакет и политика при этом сохраняются. Реплики и БД общаются внутри общей
-security group. Доступ к Grafana — через SSH-туннель на VM monitoring:
-
-```bash
-ssh -N -L 3000:127.0.0.1:3000 ubuntu@<MONITORING_PUBLIC_IP>
+```json
+{
+  "version": 1,
+  "replicas": 3,
+  "policy": "round_robin",
+  "duration": "60s",
+  "feed_rps": 50,
+  "recommendations_rps": 30,
+  "photo_upload_rps": 5,
+  "photo_start_after": "15s",
+  "seed": 42
+}
 ```
 
-Вход Grafana: `admin`, пароль `BENCH_AUTH_SECRET`. Дашборд **Gatherly — нагрузочный
-стенд** показывает RPS и CPU по репликам, очередь и активную обработку фото,
-подключения и транзакции PostgreSQL и отдельную доступность БД.
+Здесь `*_rps` — целевое число запросов в секунду по каждому сценарию,
+`duration` — длительность, `photo_start_after` — начало загрузок фото,
+`seed` — начальное значение генератора тестовых данных.
+**Заполненные поля формы переопределяют JSON, пустые берут значения из файла.**
+`envoy_config_file` выбирает профиль Envoy и имеет приоритет над полем `policy`.
+Итоговый конфиг проверяется и сохраняется в артефакте `effective-config`.
 
-Каждая реплика имеет один Uvicorn-процесс и пул максимум из двух соединений.
-Worker использует пул максимум из двух соединений и одну отдельную сессию выбора
-лидера; один exporter и десять резервных соединений дают бюджет
-`2 × replicas + 3 + 1 + 10 ≤ 34` при лимите PostgreSQL 230.
-Health checks и метрики реплик не опрашивают общую БД: один worker публикует
-общую пробу состояния, реплики проверяют её свежесть, отдельно работает
-postgres-exporter. `/health` проверяет только процесс.
+Для рекомендаций прошедшее событие со статусом участия `GOING` считается
+посещённым; пользователи без истории получают популярные события.
 
-## Проверки и отчёты
+## 6. Создай свой профиль Envoy
 
-До добавления функций Python-бэкенд прошёл прежние HTTP smoke и интеграционные
-проверки, включая rollback outbox, повторную доставку после перезапуска, отказ и
-восстановление PostgreSQL, восстановление дампа и мониторинг. Дополнительные
-контракты запускаются `scripts/compatibility.py`, фото — `scripts/features.py`.
+В своём форке создай файл `bench/envoy/my-algorithm.yaml` в ветке `main`:
 
-```bash
-docker run --rm -v "$PWD:/repo:ro" -w /repo gatherly:python-check \
-  python -m unittest discover -s tests_python -v
-python3 bench/no_sql.py  # только disposable gatherly-bench: временно останавливает его БД
+```yaml
+name: my-least-request
+cluster:
+  lb_policy: LEAST_REQUEST
+  least_request_lb_config:
+    choice_count: 4
 ```
 
-Проверены короткие локальные прогоны с одной и тремя репликами, обе политики,
-изменение действующей конфигурации и выполнение загрузки фото и авторизованных
-тёплых рекомендаций при остановленной PostgreSQL. Исходные отчёты:
-[docs/validation](docs/validation). Это короткие функциональные прогоны,
-не оценка максимальной пропускной способности. Максимум, проверенный локально:
-**3 реплики**. Допустимый диапазон конфигурации — 1–10.
+Это вариант least request с выбором из четырёх кандидатов. Поле `cluster`
+принимает нативные настройки Envoy; список алгоритмов в коде менять не требуется.
+Готовые профили: [random](bench/envoy/random.yaml), [ring hash](bench/envoy/ring-hash.yaml),
+[maglev](bench/envoy/maglev.yaml), [веса 1:2:1](bench/envoy/weighted-round-robin.yaml).
+[Формат профиля и собственные расширения Envoy](docs/envoy-profiles.md).
 
-В Yandex Cloud проверены API, фотоальбомы с приватным Object Storage и k6
-на отдельной VM с одной, тремя и **десятью контейнерными репликами** в компактном
-режиме. Десять отдельных VM в этих прогонах ещё не проверялись. Сервер в `ru-central1-a`
-и k6 в `ru-central1-d` имеют по 8 vCPU, 16 ГиБ RAM и SSD 20 ГиБ;
-обе VM прерываемые. Минутный прогон с десятью репликами, `least_request`
-и темпами 50/30/5 RPS прошёл без ошибок и dropped iterations. Фото загружались
-с 15-й секунды в течение 45 секунд. Конфиг: `bench/configs/ten-replicas-60s.json`.
-[Отчёт прогона](docs/validation/cloud-ten-replicas-60s.md), прежние результаты
-на малом стенде и фактические параметры находятся в [docs/validation](docs/validation).
-Workflow проверен линтером, но ещё не запускался в GitHub Actions.
+Снова открой **Run workflow**, выбери `main` и заполни:
 
-Actions публикует итоговый конфиг, проверку прокси, JSON k6 и отчёт по каждому
-сценарию: заданный RPS, фактический успешный RPS, p95, p99, долю ошибок и
-`dropped_iterations`. При неудаче собираются доступные логи контейнеров VM.
+| Поле | Значение |
+| --- | --- |
+| `mode` | `update_config` |
+| `config_file` | `bench/configs/one-minute.json` |
+| `replicas` | `3` |
+| `envoy_config_file` | `bench/envoy/my-algorithm.yaml` |
+| `run_load_test` | Включено |
 
-Для прежнего одиночного демо остаются `infra/terraform`, `infra/ansible/deploy.yml`
-и `docker-compose.prod.yml`. Для Python-версии нужны оба образа; задайте
-`gatherly_worker_image` и при передаче архивов `worker_image_archive` наряду с
-`gatherly_image` и `image_archive`.
+Остальные поля оставь без изменений. Нажми **Run workflow** и дождись завершения
+`cleanup_workspace → update_config → load_test`.
+
+CI проверит профиль настоящим Envoy до облачных изменений. Настройки кластера
+и маршрута обновляются через CDS/RDS без перезапуска; БД и бакеты сохранятся.
+Перед нагрузкой workflow проверит применённые параметры и три здоровые реплики.
+В обоих прогонах одинаковые тестовые данные и темп запросов; меняется алгоритм балансировки.
+
+## 7. Сравни результаты
+
+Открой каждый завершённый запуск в **Actions**. В summary джоба `load_test`
+сравни успешный RPS, p95, p99, ошибки и `dropped_iterations` для ленты,
+рекомендаций и фотографий. Скачай артефакт `load-test-results`: в нём лежат
+итоговый конфиг с полным профилем Envoy, отчёты k6 и результат проверки Envoy.
+
+## 8. Открой мониторинг
+
+В Yandex Cloud открой **Compute Cloud → Виртуальные машины → gatherly-bench-monitoring**
+и скопируй публичный IP.
+
+В **Virtual Private Cloud → Группы безопасности → gatherly-bench** добавь
+входящее правило: TCP, порт `22`, источник — публичный IPv4 твоего компьютера с `/32`.
+Текущий IPv4 можно посмотреть на [api.ipify.org](https://api.ipify.org).
+Workflow настраивает SSH-доступ для своего runner; это правило добавляет доступ с твоего компьютера.
+
+В терминале подставь IP VM мониторинга:
+
+```bash
+ssh -F /dev/null -i ~/.gatherly-bench/ssh-key \
+  -N -L 13000:127.0.0.1:3000 ubuntu@<MONITORING_IP>
+```
+
+Оставь терминал открытым и перейди в [Grafana](http://localhost:13000/d/gatherly-bench).
+Логин — `admin`, пароль — содержимое `~/.gatherly-bench/auth-secret`.
+Выбери период обоих прогонов на дашборде **«Gatherly — нагрузочный стенд»**:
+там видны запросы и CPU по репликам, очередь обработки фото, p99 HTTP и нагрузка PostgreSQL.
+
+VM и бакеты остаются в облаке после завершения тестов. После экспериментов
+открой настройки созданного облака и выбери
+[Удалить облако → Удалить сейчас](https://yandex.cloud/ru/docs/resource-manager/operations/cloud/delete).

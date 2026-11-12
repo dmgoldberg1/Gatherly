@@ -1,5 +1,7 @@
 # ER-диаграмма
 
+**Русский** | [English](er-diagram.en.md)
+
 ```mermaid
 erDiagram
     USERS ||--o{ FOLLOWS : follower

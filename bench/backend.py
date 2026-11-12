@@ -12,6 +12,27 @@ def state_key(stand):
     return stand + '/terraform.tfstate'
 
 
+def configured_for(directory, bucket, key):
+    metadata = Path(directory) / '.terraform/terraform.tfstate'
+    backend = json.loads(metadata.read_text()).get('backend', {}) if metadata.is_file() else {}
+    return (backend.get('type') == 's3' and backend.get('config', {}).get('bucket') == bucket
+            and backend.get('config', {}).get('key') == key)
+
+
+def comparable_state(state):
+    """Terraform may reorder validation checks when saving its local backup."""
+    result = dict(state)
+    if isinstance(state.get('check_results'), list):
+        checks = []
+        for check in state['check_results']:
+            check = dict(check)
+            if isinstance(check.get('objects'), list):
+                check['objects'] = sorted(check['objects'], key=lambda item: item['object_addr'])
+            checks.append(check)
+        result['check_results'] = sorted(checks, key=lambda item: item['config_addr'])
+    return result
+
+
 def initialize(directory, bucket, stand, run, migrated=False):
     directory = Path(directory)
     if not bucket:
@@ -20,10 +41,7 @@ def initialize(directory, bucket, stand, run, migrated=False):
         run(['terraform', '-chdir=' + str(directory), 'init', '-input=false'])
         return
     key = state_key(stand)
-    metadata = directory / '.terraform/terraform.tfstate'
-    backend = json.loads(metadata.read_text()).get('backend', {}) if metadata.is_file() else {}
-    same_backend = (backend.get('type') == 's3' and backend.get('config', {}).get('bucket') == bucket
-                    and backend.get('config', {}).get('key') == key)
+    same_backend = configured_for(directory, bucket, key)
     local = directory / 'terraform.tfstate'
     if local.is_file() and local.stat().st_size and not same_backend and not migrated:
         raise ValueError('Local stand state exists; run bench/cloud.py migrate_state before switching to Actions')
@@ -32,13 +50,18 @@ def initialize(directory, bucket, stand, run, migrated=False):
          '-backend-config=bucket=' + bucket, '-backend-config=key=' + key])
 
 
-def migrate(directory, bucket, stand, run, client=None):
-    """Seed an empty backend; preserve every existing remote state, including newer ones."""
+def seed(directory, bucket, stand, client=None):
+    """Copy state conditionally, without changing the active local backend."""
     if not bucket:
         raise ValueError('BENCH_STATE_BUCKET is required for migration')
     key = state_key(stand)
     directory = Path(directory)
-    raw = (directory / 'terraform.tfstate').read_bytes()
+    source = directory / 'terraform.tfstate'
+    # Terraform init can empty the local file after saving it as .backup.
+    # Use that copy only for the exact backend already configured here.
+    if (not source.is_file() or not source.stat().st_size) and configured_for(directory, bucket, key):
+        source = directory / 'terraform.tfstate.backup'
+    raw = source.read_bytes()
     local = json.loads(raw)
     if not local.get('lineage') or type(local.get('serial')) is not int or not local.get('resources'):
         raise ValueError('Local state is empty or invalid; refusing migration')
@@ -55,10 +78,19 @@ def migrate(directory, bucket, stand, run, client=None):
             raise
         response = None
     if response is not None:
-        if json.loads(response['Body'].read()) != local:
+        if comparable_state(json.loads(response['Body'].read())) != comparable_state(local):
             raise ValueError('Remote state differs from local state; refusing to overwrite it')
     else:
         # Conditional PUT prevents overwriting a state created by another runner.
         client.put_object(Bucket=bucket, Key=key, Body=raw, ContentType='application/json', IfNoneMatch='*')
+    # Verify the stored document before any backend reconfiguration.
+    verified = client.get_object(Bucket=bucket, Key=key)['Body'].read()
+    if comparable_state(json.loads(verified)) != comparable_state(local):
+        raise ValueError('Remote state changed during migration; refusing backend reconfiguration')
+
+
+def migrate(directory, bucket, stand, run, client=None):
+    """Seed an empty backend; preserve every existing remote state, including newer ones."""
+    seed(directory, bucket, stand, client)
     initialize(directory, bucket, stand, run, migrated=True)
     print('Shared state initialized for ' + stand + '; local state backup retained')

@@ -1,0 +1,5 @@
+name: least-request-4-choices
+cluster:
+  lb_policy: LEAST_REQUEST
+  least_request_lb_config:
+    choice_count: 4

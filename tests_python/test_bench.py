@@ -11,7 +11,7 @@ class BenchmarkConfigurationTest(unittest.TestCase):
         self.config = json.loads((ROOT / 'defaults.json').read_text())
 
     def test_invalid_inputs_are_rejected_before_resource_changes(self):
-        for changes in ({'replicas': 0}, {'replicas': 11}, {'replicas': 101}, {'replicas': True}, {'replicas': 1.5}, {'replicas': '3'}, {'policy': 'random'}, {'duration': '1m'}, {'duration': '30s'}, {'feed_rps': -1}, {'seed': -1}, {'photo_start_after': '181s'}, {'feed_rps': 0, 'photo_upload_rps': 0, 'recommendations_rps': 0}, {'version': 2}, {'typo': 3}):
+        for changes in ({'replicas': 0}, {'replicas': 11}, {'replicas': 101}, {'replicas': True}, {'replicas': 1.5}, {'replicas': '3'}, {'policy': 'not_a_policy'}, {'duration': '1m'}, {'duration': '30s'}, {'feed_rps': -1}, {'seed': -1}, {'photo_start_after': '181s'}, {'feed_rps': 0, 'photo_upload_rps': 0, 'recommendations_rps': 0}, {'version': 2}, {'typo': 3}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 validate(self.config | changes)
         for replicas in (1, 3, 10):

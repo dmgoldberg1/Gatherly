@@ -1,5 +1,7 @@
 ## Gatherly load benchmark
 
+**Русский** | [English](cloud-ten-replicas-60s.en.md)
+
 ```json
 {
   "version": 1,

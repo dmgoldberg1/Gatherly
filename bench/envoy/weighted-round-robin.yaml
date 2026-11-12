@@ -1,0 +1,4 @@
+name: weighted-round-robin
+endpoint_weights: [1, 2, 1]
+cluster:
+  lb_policy: ROUND_ROBIN

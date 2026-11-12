@@ -1,0 +1,9 @@
+name: least-request-extension
+cluster:
+  load_balancing_policy:
+    policies:
+      - typed_extension_config:
+          name: envoy.load_balancing_policies.least_request
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.load_balancing_policies.least_request.v3.LeastRequest
+            choice_count: 4

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 
-def materialize(root, environment):
+def validate_environment(environment):
     names = ('YC_CLOUD_ID', 'YC_FOLDER_ID', 'BENCH_BUCKET', 'BENCH_STATE_BUCKET',
              'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'YC_SA_KEY_JSON',
              'BENCH_SSH_PRIVATE_KEY', 'BENCH_DB_PASSWORD', 'BENCH_AUTH_SECRET')
@@ -19,6 +19,10 @@ def materialize(root, environment):
     key = json.loads(environment['YC_SA_KEY_JSON'])
     if not isinstance(key, dict) or any(not key.get(name) for name in ('id', 'service_account_id', 'private_key')):
         raise ValueError('YC_SA_KEY_JSON must be an authorized service-account key')
+
+
+def materialize(root, environment):
+    validate_environment(environment)
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     root.chmod(0o700)

@@ -9,9 +9,9 @@ import subprocess
 import sys
 
 if __package__:
-    from .control import atomic_json, render, validate, verify
+    from .control import atomic_json, documents, reconcile, render, validate, verify, envoy
 else:
-    from control import atomic_json, render, validate, verify
+    from control import atomic_json, documents, reconcile, render, validate, verify, envoy
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / '.local' / 'bench'
@@ -27,6 +27,9 @@ def main():
     parser.add_argument('--config', default='bench/defaults.json')
     args = parser.parse_args()
     config = validate(json.loads(Path(args.config).read_text()))
+    os.environ['GATHERLY_ENVOY_IMAGE'] = config['envoy_profile']['image']
+    if args.action in ('deploy', 'update_config'):
+        envoy.validate_native(config, documents(config, [f'127.0.0.{i}' for i in range(1, config['replicas'] + 1)]))
     STATE.mkdir(parents=True, exist_ok=True)
     STATE.chmod(0o700)
     env = STATE / 'secrets.env'
@@ -59,6 +62,7 @@ def main():
         inspected = json.loads(run(['docker', 'inspect', *ids], capture_output=True).stdout)
         addresses = [next(iter(item['NetworkSettings']['Networks'].values()))['IPAddress'] for item in inspected]
         render(config, sorted(addresses), STATE / 'current')
+        reconcile(compose, json.loads((STATE / 'current/bootstrap.json').read_text()), 'http://127.0.0.1:19901')
         run(compose + ['up', '-d', '--no-build', 'envoy'])
         atomic_json(STATE / 'verification.json', verify(config, 'http://127.0.0.1:19901', timeout=180))
         print('Verified active policy and healthy replicas')

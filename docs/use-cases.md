@@ -1,5 +1,7 @@
 # Use Cases
 
+**Русский** | [English](use-cases.en.md)
+
 ## Регистрация пользователя
 
 1. Пользователь отправляет username, email и password.

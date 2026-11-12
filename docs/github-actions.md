@@ -1,5 +1,7 @@
 # Запуск нагрузочного стенда через GitHub Actions
 
+**Русский** | [English](github-actions.en.md)
+
 Workflow: `.github/workflows/load-bench.yml`, имя **Gatherly cloud load benchmark**.
 В Actions каждая реплика размещается на собственной VM; Envoy, PostgreSQL,
 Prometheus/Grafana и k6 также имеют отдельные VM. Параметр `replicas` задаёт
@@ -72,8 +74,78 @@ python bench/cloud.py migrate_state
 условная: уже созданный удалённый объект перезаписать нельзя. Повтор с идентичным
 state безопасен; отличающийся state, в том числе более новый, приводит к отказу.
 Обычный deploy не переключит локальный state на удалённый молча.
+После переключения Terraform может очистить `terraform.tfstate`, сохранив
+исходный документ в `terraform.tfstate.backup`. Повторная миграция использует
+эту копию только при совпадении настроенного backend с заданными bucket/key.
+Порядок записей validation checks не влияет на сравнение; изменения данных,
+lineage, serial или статуса проверки по-прежнему приводят к отказу.
 
 Для нового стенда без локального state этот шаг не нужен.
+
+### Загрузка настроек через GitHub CLI
+
+Вход выполняется локально; токен не нужно передавать в чат или сохранять в Git:
+
+```bash
+GH_CONFIG_DIR="$PWD/.local/gh" .local/bin/gh auth login \
+  --hostname github.com --git-protocol https --web --scopes repo,workflow
+export GH_CONFIG_DIR="$PWD/.local/gh"
+```
+
+Можно использовать установленный системный `gh`. Локальная копия `.local/bin/gh`
+не включается в репозиторий. Для fine-grained PAT нужны права записи Actions,
+Secrets и Variables на Gatherly; для изменения workflow также Contents/Workflows.
+Точные требования к Secrets описаны в [GitHub REST API](https://docs.github.com/en/rest/actions/secrets).
+
+Утилита `python -m bench.github_setup` принимает приватный JSON с тремя полями:
+`repository` (например, `dmgoldberg1/Gatherly`), `variables` и `secrets`.
+Два последних поля — объекты с именами настроек из таблиц выше и строковыми
+значениями. Все шесть secrets обязательны. Для существующего стенда берите
+пароль БД и auth secret из его прежнего окружения. Создайте отдельный SSH-ключ
+Actions и добавьте его публичную часть в `authorized_keys` существующих VM;
+проверьте вход этим ключом перед запуском. Личный SSH-ключ в Actions не загружайте.
+
+Храните JSON под `.local/bench/actions/`, права каталога `700`, файла `600`.
+После подготовки облачного аккаунта и ключей:
+
+```bash
+chmod 600 .local/bench/actions/github-settings.json
+python -m bench.github_setup validate --settings .local/bench/actions/github-settings.json
+python -m bench.github_setup configure --settings .local/bench/actions/github-settings.json
+python -m bench.github_setup check --settings .local/bench/actions/github-settings.json
+```
+
+`configure` проверяет доступ к API и отсутствие активного benchmark workflow до
+первого изменения. Секреты передаются `gh secret set` через stdin, значения не
+печатаются и не попадают в аргументы процессов. `check` сверяет значения variables
+и наличие всех шести имён secrets: прочитать значения secrets GitHub не позволяет.
+
+### Права CI для уже существующего стенда
+
+Когда сеть, бакет фотографий и аккаунт `objects` уже созданы, CI не требуется
+администрирование IAM всего каталога. Подготовленный набор прав:
+
+| Область | Роли |
+| --- | --- |
+| Каталог стенда | `compute.editor`, `vpc.user`, `vpc.publicAdmin`, `vpc.securityGroups.admin` |
+| Только существующий аккаунт `objects` | `viewer`, `iam.serviceAccounts.accessKeyAdmin` |
+| Только бакет фотографий | `storage.admin` |
+| Только бакет state | `storage.editor` |
+
+Создание CI-аккаунта, авторизованного и статического ключей выполняет оператор.
+Права на каталог позволяют CI создавать/удалять VM и менять сетевой доступ
+ресурсов этого каталога; используйте каталог, выделенный под стенд. Такой аккаунт
+предназначен для обновления существующей инфраструктуры, а не для создания нового
+стенда с нуля. Настройку ролей на отдельные бакеты описывает
+[документация Yandex Cloud](https://yandex.cloud/ru/docs/storage/operations/buckets/iam-access).
+
+State можно предварительно скопировать с текущим IAM-токеном оператора через
+`bench.backend.seed(..., client=...)`, не создавая постоянный ключ.
+Функция использует условную запись и проверяет документ обратным чтением;
+отличающийся удалённый state не перезаписывает. Это подготовленная копия,
+локальный backend остаётся активным. После выдачи ключей выполните обычный
+`migrate_state` из инструкции выше, чтобы переключить backend на общий бакет.
+Не запускайте параллельное управление стендом через старый локальный backend.
 
 ## Первый минутный запуск
 
@@ -92,6 +164,22 @@ state безопасен; отличающийся state, в том числе �
 проверяется до облачных изменений, отображается в summary и передаётся одним
 артефактом всем jobs. Поля запуска переопределяют только соответствующие значения
 JSON. Неверные параметры завершают запуск до deploy.
+
+Первый запуск с одной отдельной репликой через CLI, после настройки credentials,
+переключения backend и проверки квот:
+
+```bash
+.local/bin/gh workflow run load-bench.yml --repo dmgoldberg1/Gatherly --ref main \
+  -f mode=deploy_and_test -f config_file=bench/configs/one-minute.json -f replicas=1
+.local/bin/gh run list --repo dmgoldberg1/Gatherly --workflow load-bench.yml --limit 5
+.local/bin/gh run watch <RUN_ID> --repo dmgoldberg1/Gatherly --exit-status
+```
+
+Для `replicas=1` нужны 64 ГиБ RAM в `YC_ZONE` (БД, Envoy, мониторинг, приложение)
+и ещё 16 ГиБ в зоне k6: всего 5 VM, 40 vCPU, 80 ГиБ RAM, 100 ГиБ SSD, 5 IP.
+Существующие VM учитываются в этих суммах. Проверьте доступный остаток с учётом
+остальных ресурсов облака до сборки образов и deploy. Подготовленная копия state
+и наличие workflow ещё не означают, что распределённый прогон выполнен.
 
 При переходе с компактной схемы deploy сохраняет существующую VM БД через
 перенос адреса ресурса в Terraform state. Удаление или замена VM БД блокируются.

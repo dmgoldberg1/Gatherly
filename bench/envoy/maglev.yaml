@@ -1,0 +1,9 @@
+name: maglev
+cluster:
+  lb_policy: MAGLEV
+  maglev_lb_config:
+    table_size: 65537
+route:
+  hash_policy:
+    - header:
+        header_name: X-Bench-Key

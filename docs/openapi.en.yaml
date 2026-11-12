@@ -1,0 +1,511 @@
+openapi: 3.0.3
+info:
+  title: Gatherly API
+  version: 0.2.0
+  description: API for informal events with follows, participation, notifications, an outbox worker, and
+    limit/offset pagination.
+servers:
+- url: http://localhost:8080/api/v1
+security:
+- bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      security: []
+      summary: Register a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+        '409':
+          description: Username or email is already in use
+  /auth/login:
+    post:
+      security: []
+      summary: Sign in with username or email and receive a token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Token returned
+        '401':
+          description: Invalid credentials
+  /me:
+    get:
+      summary: Get the current user profile
+      responses:
+        '200':
+          description: Current user
+        '401':
+          description: Authentication required
+  /me/participations:
+    get:
+      summary: Get the current user's participation history
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Participations with event details
+        '401':
+          description: Authentication required
+  /users:
+    get:
+      security: []
+      summary: Get the user list
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Users
+  /users/{id}:
+    get:
+      security: []
+      summary: Get a user profile
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: User
+        '404':
+          description: Not found
+  /users/{id}/follow:
+    post:
+      summary: Follow a user
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Follow created
+        '409':
+          description: Follow already exists
+    delete:
+      summary: Unfollow a user
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Follow removed
+  /users/{id}/followers:
+    get:
+      security: []
+      summary: Get a user's followers
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Followers
+  /users/{id}/following:
+    get:
+      security: []
+      summary: Get the users followed by a user
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Following
+  /events:
+    get:
+      security: []
+      summary: Get public events
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Public events
+    post:
+      summary: Create an event draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '201':
+          description: Draft created
+  /events/{id}:
+    get:
+      summary: Get an event
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Event
+    patch:
+      summary: Partially update an event
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventPatchRequest'
+      responses:
+        '200':
+          description: Event updated
+  /events/{id}/publish:
+    post:
+      summary: Publish an event
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notify_user_ids:
+                  type: array
+                  items:
+                    type: integer
+                    format: int64
+      responses:
+        '200':
+          description: Event published
+  /events/{id}/cancel:
+    post:
+      summary: Cancel an event
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Event canceled
+  /feed:
+    get:
+      summary: Get events from followed users
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Feed
+  /events/{id}/participants:
+    post:
+      summary: Join an event
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '201':
+          description: Participation created
+    get:
+      summary: List event participants as the organizer
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Participants
+  /events/{id}/participants/me:
+    patch:
+      summary: Change my participation status
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - GOING
+                  - MAYBE
+                  - DECLINED
+                  - WAITLISTED
+      responses:
+        '200':
+          description: Status updated
+    delete:
+      summary: Leave an event
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: User left the event
+  /notifications:
+    get:
+      summary: Get my notifications
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Notifications
+  /notifications/{id}/read:
+    patch:
+      summary: Mark a notification as read
+      parameters:
+      - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Notification
+  /recommendations:
+    get:
+      summary: Personalized recommendations; popular events for users with no history
+      parameters:
+      - &id001
+        $ref: '#/components/parameters/Limit'
+      - &id002
+        $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Page of events with score, source, and generation
+        '503':
+          description: Catalog snapshot is not ready yet
+  /albums:
+    get:
+      summary: List the user's albums or accessible event albums
+      parameters:
+      - *id001
+      - *id002
+      - name: event_id
+        in: query
+        schema: &id003
+          type: integer
+      responses:
+        '200':
+          description: Page of albums
+    post:
+      summary: Create an album and receive an upload token valid for 600 seconds
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_id: *id003
+                title:
+                  type: string
+                  maxLength: 120
+              required:
+              - event_id
+              - title
+      responses:
+        '201':
+          description: album, upload_token, expires_in
+        '403':
+          description: Organizer or a participant with GOING status required
+  /albums/{id}:
+    parameters:
+    - &id004
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    get:
+      summary: View an album with photo links valid for 300 seconds
+      responses:
+        '200':
+          description: Album with photos, thumbnail_url, and gallery_url
+        '403':
+          description: Access to the album or event is denied
+  /albums/{id}/photos:
+    parameters:
+    - *id004
+    post:
+      summary: Process a photo without SQL; keep the request open until both variants are saved
+      security:
+      - uploadToken: []
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: photo and a signed receipt
+        '400':
+          description: Invalid image
+        '401':
+          description: Invalid or expired token
+        '403':
+          description: Token belongs to another album
+        '413':
+          description: Exceeds 12 MB or 24 million pixels
+        '429':
+          description: Processing queue is full
+  /albums/{id}/publish:
+    parameters:
+    - *id004
+    post:
+      summary: Verify readiness and publish photos in one short transaction; repeating the same publication
+        is safe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                receipts:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 100
+              required:
+              - receipts
+      responses:
+        '200':
+          description: Published album
+        '409':
+          description: Photo is not ready or the album was published with a different photo set
+  /albums/{id}/upload-token:
+    parameters:
+    - *id004
+    post:
+      summary: Refresh a draft album upload token; owner only
+      responses:
+        '200':
+          description: upload_token, expires_in
+        '409':
+          description: Album is already published
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    uploadToken:
+      type: apiKey
+      in: header
+      name: X-Upload-Token
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+      - username
+      - email
+      - password
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        bio:
+          type: string
+        avatar_url:
+          type: string
+    LoginRequest:
+      type: object
+      required:
+      - password
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+      anyOf:
+      - required:
+        - username
+      - required:
+        - email
+    EventRequest:
+      type: object
+      required:
+      - title
+      - location
+      - starts_at
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        starts_at:
+          type: string
+        ends_at:
+          type: string
+        photo_url:
+          type: string
+        category:
+          type: string
+        visibility:
+          type: string
+          enum:
+          - PUBLIC
+          - FOLLOWERS_ONLY
+          - PRIVATE
+        participant_limit:
+          type: integer
+    EventPatchRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        starts_at:
+          type: string
+        ends_at:
+          type: string
+        photo_url:
+          type: string
+        category:
+          type: string
+        visibility:
+          type: string
+          enum:
+          - PUBLIC
+          - FOLLOWERS_ONLY
+          - PRIVATE
+        participant_limit:
+          type: integer
