@@ -1,0 +1,42 @@
+{
+  "config": {
+    "version": 1,
+    "replicas": 3,
+    "policy": "least_request",
+    "duration": "180s",
+    "feed_rps": 50,
+    "recommendations_rps": 30,
+    "photo_upload_rps": 1,
+    "photo_start_after": "60s",
+    "seed": 42
+  },
+  "scenarios": {
+    "feed": {
+      "target_rps": 50,
+      "successful_rps": 50.00555555555555,
+      "successful_requests": 9001,
+      "p95_ms": 16.978657,
+      "p99_ms": 22.582797,
+      "error_rate": 0,
+      "dropped_iterations": 0
+    },
+    "recommendations": {
+      "target_rps": 30,
+      "successful_rps": 30.005555555555556,
+      "successful_requests": 5401,
+      "p95_ms": 14.08932,
+      "p99_ms": 19.741321,
+      "error_rate": 0,
+      "dropped_iterations": 0
+    },
+    "photo_upload": {
+      "target_rps": 1,
+      "successful_rps": 1.0083333333333333,
+      "successful_requests": 121,
+      "p95_ms": 882.14977,
+      "p99_ms": 951.1349485999999,
+      "error_rate": 0,
+      "dropped_iterations": 0
+    }
+  }
+}

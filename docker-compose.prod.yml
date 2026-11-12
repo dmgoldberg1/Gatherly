@@ -12,10 +12,22 @@ services:
     environment:
       GATHERLY_DATABASE_URL: postgresql://gatherly:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/gatherly
       GATHERLY_AUTH_SECRET: ${GATHERLY_AUTH_SECRET:?Set GATHERLY_AUTH_SECRET}
+    volumes:
+      - gatherly_media:/data
     depends_on:
       migrate:
         condition: service_completed_successfully
-    mem_limit: 256m
+    mem_limit: 1g
+  worker:
+    <<: *runtime
+    image: ${GATHERLY_WORKER_IMAGE:-gatherly-worker:demo}
+    environment:
+      GATHERLY_DATABASE_URL: postgresql://gatherly:${POSTGRES_PASSWORD}@postgres:5432/gatherly
+      GATHERLY_DB_POOL_SIZE: "2"
+    volumes: [gatherly_media:/data]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    mem_limit: 2g
   postgres:
     <<: *runtime
     image: postgres:16-alpine
@@ -110,3 +122,4 @@ volumes:
   postgres_data:
   prometheus_data:
   grafana_data:
+  gatherly_media:

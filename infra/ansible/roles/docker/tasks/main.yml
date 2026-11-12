@@ -9,3 +9,23 @@
     name: docker
     state: started
     enabled: true
+- name: Inspect image store before configuring a fresh compact host
+  ansible.builtin.command: docker image ls -q
+  register: docker_existing_images
+  changed_when: false
+  when: bench_layout | default('distributed') == 'compact'
+- name: Use space-efficient storage on a fresh compact host
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: '{"features":{"containerd-snapshotter":false},"storage-driver":"overlay2"}'
+    mode: '0644'
+    force: false
+  register: docker_storage_config
+  when:
+    - bench_layout | default('distributed') == 'compact'
+    - docker_existing_images.stdout | default('') == ''
+- name: Activate fresh compact image store
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+  when: docker_storage_config.changed | default(false)

@@ -1,0 +1,155 @@
+- name: Prepare benchmark machines
+  hosts: all
+  tags: prepare
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH after VM creation
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+    - name: Gather facts
+      ansible.builtin.setup:
+    - name: Reuse Gatherly Docker installation
+      ansible.builtin.include_role:
+        name: docker
+    - name: Create private stand directory
+      ansible.builtin.file:
+        path: /opt/gatherly-bench
+        state: directory
+        mode: '0755'
+    - name: Copy per-host stand configuration atomically
+      ansible.builtin.copy:
+        src: "{{ bench_files }}/"
+        dest: /opt/gatherly-bench/
+        mode: preserve
+      no_log: true
+    - name: Keep stand directory traversable without exposing private files
+      ansible.builtin.file:
+        path: /opt/gatherly-bench
+        state: directory
+        mode: '0755'
+    - name: Copy application archive
+      ansible.builtin.copy:
+        src: "{{ bench_app_archive }}"
+        dest: /opt/gatherly-bench/app.tar
+        mode: '0600'
+      register: app_archive
+      when: bench_role in ['app', 'database', 'load'] and bench_layout != 'compact'
+    - name: Load application archive when changed
+      ansible.builtin.command: docker load -i /opt/gatherly-bench/app.tar
+      when: app_archive.changed | default(false)
+    - name: Copy worker archive
+      ansible.builtin.copy:
+        src: "{{ bench_worker_archive }}"
+        dest: /opt/gatherly-bench/worker.tar
+        mode: '0600'
+      register: worker_archive
+      when: bench_role == 'database'
+    - name: Load worker archive when changed
+      ansible.builtin.command: docker load -i /opt/gatherly-bench/worker.tar
+      when: worker_archive.changed | default(false)
+
+- name: Prepare database and background process
+  hosts: database
+  tags: run
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start existing PostgreSQL without replacing its data volume
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d --wait postgres
+      args: {chdir: /opt/gatherly-bench}
+    - name: Apply versioned migrations on deploy
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json run --rm migrate
+      args: {chdir: /opt/gatherly-bench}
+      when: bench_mode == 'deploy'
+    - name: Start encoder and database exporter
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d --no-build worker postgres-exporter node-exporter cadvisor
+      args: {chdir: /opt/gatherly-bench}
+
+- name: Start replicas
+  hosts: app
+  tags: run
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start replica with existing image
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d --no-build
+      args: {chdir: /opt/gatherly-bench}
+    - name: Wait for replica readiness using shared database health sample
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/ready
+      register: ready
+      retries: 60
+      delay: 3
+      until: ready.status == 200
+
+- name: Apply Envoy configuration
+  hosts: proxy
+  tags: run
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start proxy without rebuilding images
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d
+      args: {chdir: /opt/gatherly-bench}
+    - name: Verify active policy and healthy replica count
+      ansible.builtin.command: python3 control.py verify --config config.json --admin http://127.0.0.1:9901
+      args: {chdir: /opt/gatherly-bench}
+      changed_when: false
+
+- name: Start dedicated monitoring VM
+  hosts: monitoring
+  tags: run
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start Prometheus and Grafana separately from measured services
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d
+      args: {chdir: /opt/gatherly-bench}
+    - name: Reload monitoring targets after replica changes
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json exec -T prometheus /bin/sh -c 'kill -HUP 1'
+      args: {chdir: /opt/gatherly-bench}
+
+- name: Start monitoring on the separate k6 machine
+  hosts: load
+  tags: run
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start system and container exporters
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d
+      args: {chdir: /opt/gatherly-bench}
+
+- name: Start compact benchmark services
+  hosts: compact
+  tags: run
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start persistent PostgreSQL
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d --wait postgres
+      args: {chdir: /opt/gatherly-bench}
+    - name: Apply versioned migrations on deploy
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json run --rm migrate
+      args: {chdir: /opt/gatherly-bench}
+      when: bench_mode == 'deploy'
+    - name: Apply replica count and start the compact stack
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d --no-build --remove-orphans
+      args: {chdir: /opt/gatherly-bench}
+    - name: Reload monitoring targets
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json exec -T prometheus /bin/sh -c 'kill -HUP 1'
+      args: {chdir: /opt/gatherly-bench}
+    - name: Verify requested policy and healthy replicas
+      ansible.builtin.command: python3 control.py verify --config config.json --admin http://127.0.0.1:9901
+      args: {chdir: /opt/gatherly-bench}
+      changed_when: false
+
+- name: Finish transition from a compact host to a dedicated database VM
+  hosts: database
+  tags: run
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Remove former application, proxy and monitoring containers after the new endpoints are ready
+      ansible.builtin.command: docker compose -p gatherly-bench -f compose.json up -d --no-build --remove-orphans postgres worker postgres-exporter node-exporter cadvisor
+      args: {chdir: /opt/gatherly-bench}

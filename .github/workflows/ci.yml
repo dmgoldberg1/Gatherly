@@ -11,8 +11,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Build C++ and run unit tests inside Docker
+      - name: Build Python backend
         run: docker build -t gatherly:demo .
+      - name: Build pinned CPU recommendation worker
+        run: docker build -f Dockerfile.worker -t gatherly-worker:demo .
+      - name: Password and token compatibility tests
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo gatherly:demo python -m unittest discover -s tests_python -v
       - name: Prepare disposable Compose environment
         run: |
           mkdir -p .local
@@ -23,14 +27,17 @@ jobs:
             echo HTTP_PORT=18080
             echo HTTPS_PORT=18443
             echo GRAFANA_PORT=13000
-            echo POSTGRES_PASSWORD=$(openssl rand -hex 32)
-            echo GATHERLY_AUTH_SECRET=$(openssl rand -hex 32)
-            echo GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 32)
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)"
+            echo "GATHERLY_AUTH_SECRET=$(openssl rand -hex 32)"
+            echo "GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 32)"
           } > .local/smoke.env
       - name: Start production Compose
         run: docker compose -p gatherly-check --env-file .local/smoke.env -f docker-compose.prod.yml up -d --wait --wait-timeout 180
       - name: HTTP, PostgreSQL faults, recovery, backup and monitoring tests
-        run: python3 scripts/integration.py
+        run: |
+          python3 scripts/integration.py
+          python3 scripts/compatibility.py http://127.0.0.1:18080
+          docker run --rm --network gatherly-check_default -v "$PWD/scripts:/scripts:ro" gatherly:demo python /scripts/features.py http://nginx
       - name: Print service logs on failure
         if: failure()
         run: docker compose -p gatherly-check --env-file .local/smoke.env -f docker-compose.prod.yml logs --tail 100
@@ -47,8 +54,14 @@ jobs:
       - run: terraform -chdir=infra/terraform fmt -check
       - run: terraform -chdir=infra/terraform init -backend=false
       - run: terraform -chdir=infra/terraform validate
+      - run: terraform -chdir=infra/terraform/bench fmt -check
+      - run: terraform -chdir=infra/terraform/bench init -backend=false
+      - run: terraform -chdir=infra/terraform/bench validate
       - run: sudo apt-get update && sudo apt-get install -y ansible
       - run: ansible-playbook -i infra/ansible/inventory.ini.example infra/ansible/deploy.yml --syntax-check
+      - run: ansible-playbook -i infra/ansible/inventory.ini.example infra/ansible/bench.yml --syntax-check
+      - name: Validate GitHub Actions workflows
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12
       - run: node --check static/app.js
   publish:
     needs: [build-test, infrastructure]
@@ -75,3 +88,12 @@ jobs:
           tags: ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Publish CPU recommendation worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: ${{ steps.image.outputs.name }}-worker:sha-${{ github.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker

@@ -1,0 +1,357 @@
+{
+  "targets": [
+    {
+      "job": "cadvisor",
+      "instance": "10.52.0.4:8081",
+      "health": "up"
+    },
+    {
+      "job": "cadvisor",
+      "instance": "10.53.0.20:8081",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-001:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-002:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-003:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-004:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-007:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-006:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-010:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-005:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-008:8080",
+      "health": "up"
+    },
+    {
+      "job": "gatherly",
+      "instance": "gatherly-009:8080",
+      "health": "up"
+    },
+    {
+      "job": "node",
+      "instance": "10.53.0.20:9100",
+      "health": "up"
+    },
+    {
+      "job": "node",
+      "instance": "10.52.0.4:9100",
+      "health": "up"
+    },
+    {
+      "job": "postgres",
+      "instance": "10.53.0.20:9187",
+      "health": "up"
+    }
+  ],
+  "panels": [
+    {
+      "title": "Успешные запросы по репликам",
+      "series": 10,
+      "labels": [
+        {
+          "replica": "gatherly-001"
+        },
+        {
+          "replica": "gatherly-003"
+        },
+        {
+          "replica": "gatherly-002"
+        },
+        {
+          "replica": "gatherly-006"
+        },
+        {
+          "replica": "gatherly-004"
+        },
+        {
+          "replica": "gatherly-007"
+        },
+        {
+          "replica": "gatherly-009"
+        },
+        {
+          "replica": "gatherly-010"
+        },
+        {
+          "replica": "gatherly-008"
+        },
+        {
+          "replica": "gatherly-005"
+        }
+      ]
+    },
+    {
+      "title": "CPU приложения по репликам",
+      "series": 10,
+      "labels": [
+        {
+          "replica": "gatherly-001"
+        },
+        {
+          "replica": "gatherly-003"
+        },
+        {
+          "replica": "gatherly-002"
+        },
+        {
+          "replica": "gatherly-004"
+        },
+        {
+          "replica": "gatherly-009"
+        },
+        {
+          "replica": "gatherly-010"
+        },
+        {
+          "replica": "gatherly-005"
+        },
+        {
+          "replica": "gatherly-006"
+        },
+        {
+          "replica": "gatherly-007"
+        },
+        {
+          "replica": "gatherly-008"
+        }
+      ]
+    },
+    {
+      "title": "Очередь обработки фото",
+      "series": 10,
+      "labels": [
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-001:8080",
+          "job": "gatherly",
+          "replica": "gatherly-001"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-003:8080",
+          "job": "gatherly",
+          "replica": "gatherly-003"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-002:8080",
+          "job": "gatherly",
+          "replica": "gatherly-002"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-006:8080",
+          "job": "gatherly",
+          "replica": "gatherly-006"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-004:8080",
+          "job": "gatherly",
+          "replica": "gatherly-004"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-007:8080",
+          "job": "gatherly",
+          "replica": "gatherly-007"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-009:8080",
+          "job": "gatherly",
+          "replica": "gatherly-009"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-010:8080",
+          "job": "gatherly",
+          "replica": "gatherly-010"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-008:8080",
+          "job": "gatherly",
+          "replica": "gatherly-008"
+        },
+        {
+          "__name__": "gatherly_photo_processing_queued",
+          "instance": "gatherly-005:8080",
+          "job": "gatherly",
+          "replica": "gatherly-005"
+        }
+      ]
+    },
+    {
+      "title": "Активная обработка фото",
+      "series": 10,
+      "labels": [
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-001:8080",
+          "job": "gatherly",
+          "replica": "gatherly-001"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-003:8080",
+          "job": "gatherly",
+          "replica": "gatherly-003"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-002:8080",
+          "job": "gatherly",
+          "replica": "gatherly-002"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-006:8080",
+          "job": "gatherly",
+          "replica": "gatherly-006"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-004:8080",
+          "job": "gatherly",
+          "replica": "gatherly-004"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-007:8080",
+          "job": "gatherly",
+          "replica": "gatherly-007"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-009:8080",
+          "job": "gatherly",
+          "replica": "gatherly-009"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-010:8080",
+          "job": "gatherly",
+          "replica": "gatherly-010"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-008:8080",
+          "job": "gatherly",
+          "replica": "gatherly-008"
+        },
+        {
+          "__name__": "gatherly_photo_processing_active",
+          "instance": "gatherly-005:8080",
+          "job": "gatherly",
+          "replica": "gatherly-005"
+        }
+      ]
+    },
+    {
+      "title": "Подключения PostgreSQL",
+      "series": 1,
+      "labels": [
+        {
+          "__name__": "pg_stat_database_numbackends",
+          "datid": "16384",
+          "datname": "gatherly",
+          "instance": "10.53.0.20:9187",
+          "job": "postgres"
+        }
+      ]
+    },
+    {
+      "title": "Транзакции PostgreSQL",
+      "series": 1,
+      "labels": [
+        {
+          "datid": "16384",
+          "datname": "gatherly",
+          "instance": "10.53.0.20:9187",
+          "job": "postgres"
+        }
+      ]
+    },
+    {
+      "title": "Доступность PostgreSQL — отдельная проверка",
+      "series": 1,
+      "labels": [
+        {
+          "__name__": "pg_up",
+          "instance": "10.53.0.20:9187",
+          "job": "postgres"
+        }
+      ]
+    },
+    {
+      "title": "p99 HTTP по репликам",
+      "series": 10,
+      "labels": [
+        {
+          "replica": "gatherly-003"
+        },
+        {
+          "replica": "gatherly-002"
+        },
+        {
+          "replica": "gatherly-006"
+        },
+        {
+          "replica": "gatherly-004"
+        },
+        {
+          "replica": "gatherly-007"
+        },
+        {
+          "replica": "gatherly-010"
+        },
+        {
+          "replica": "gatherly-009"
+        },
+        {
+          "replica": "gatherly-008"
+        },
+        {
+          "replica": "gatherly-005"
+        },
+        {
+          "replica": "gatherly-001"
+        }
+      ]
+    }
+  ]
+}

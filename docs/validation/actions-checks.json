@@ -1,0 +1,11 @@
+{
+  "unit_tests": 21,
+  "unit_tests_passed": true,
+  "actionlint_version": "1.7.12",
+  "actionlint_passed": true,
+  "terraform_validate_passed": true,
+  "ansible_syntax_passed": true,
+  "github_workflow_executed": false,
+  "remote_api_authorization_available": false,
+  "live_cloud_resources_changed": false
+}

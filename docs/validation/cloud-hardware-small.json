@@ -1,0 +1,20 @@
+{
+  "server": {
+    "zone": "ru-central1-a",
+    "status": "RUNNING",
+    "vCPU": 2,
+    "RAM_GiB": 8.0,
+    "disk_type": "network-ssd",
+    "disk_GiB": 10.0,
+    "preemptible": true
+  },
+  "load": {
+    "zone": "ru-central1-d",
+    "status": "RUNNING",
+    "vCPU": 2,
+    "RAM_GiB": 2.0,
+    "disk_type": "network-hdd",
+    "disk_GiB": 15.0,
+    "preemptible": true
+  }
+}

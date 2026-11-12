@@ -1,0 +1,127 @@
+{
+  "status": "running",
+  "layout": "compact",
+  "hardware": {
+    "server": {
+      "id": "fhmdn1lf7c7qmsbqatfv",
+      "zone": "ru-central1-a",
+      "status": "RUNNING",
+      "vCPU": 8,
+      "RAM_GiB": 16.0,
+      "core_fraction": 100,
+      "disk_type": "network-ssd",
+      "disk_GiB": 20.0,
+      "preemptible": true,
+      "public_ip": "51.250.81.77",
+      "private_ip": "10.53.0.20"
+    },
+    "load": {
+      "id": "fv44ol872q8ms2cs4e1e",
+      "zone": "ru-central1-d",
+      "status": "RUNNING",
+      "vCPU": 8,
+      "RAM_GiB": 16.0,
+      "core_fraction": 100,
+      "disk_type": "network-ssd",
+      "disk_GiB": 20.0,
+      "preemptible": true,
+      "public_ip": "153.51.164.174",
+      "private_ip": "10.52.0.4"
+    }
+  },
+  "object_storage_verified": true,
+  "http_contracts_and_albums_verified": true,
+  "cloud_k6_verified": [
+    {
+      "replicas": 1,
+      "policy": "round_robin",
+      "duration": "30s"
+    },
+    {
+      "replicas": 3,
+      "policy": "round_robin",
+      "duration": "30s"
+    },
+    {
+      "replicas": 3,
+      "policy": "least_request",
+      "duration": "30s"
+    },
+    {
+      "replicas": 3,
+      "policy": "least_request",
+      "duration": "180s",
+      "feed_rps": 50,
+      "recommendations_rps": 30,
+      "photo_upload_rps": 1,
+      "thresholds_passed": true,
+      "report": "cloud-50-30-1-least-request.json"
+    },
+    {
+      "version": 1,
+      "replicas": 10,
+      "policy": "least_request",
+      "duration": "60s",
+      "feed_rps": 50,
+      "recommendations_rps": 30,
+      "photo_upload_rps": 5,
+      "photo_start_after": "15s",
+      "seed": 42,
+      "thresholds_passed": true,
+      "report": "cloud-ten-least-request-60s.json"
+    }
+  ],
+  "max_replicas_verified": 10,
+  "github_actions_executed": false,
+  "full_default_rate_test": {
+    "executed": true,
+    "thresholds_passed": false,
+    "duration": "180s",
+    "policy": "least_request",
+    "target_rps": {
+      "feed": 50,
+      "recommendations": 30,
+      "photo_upload": 5
+    },
+    "report": "cloud-full-least-request.json",
+    "photo_successful_rps": 3.7416666666666667,
+    "photo_error_rate": 0.24155405405405406,
+    "photo_dropped_iterations": 9,
+    "hardware_report": "cloud-hardware-small.json"
+  },
+  "load_tests_stopped_by_user": false,
+  "benchmark_running": false,
+  "last_run_completed_before_stop": true,
+  "current_replicas": 10,
+  "current_policy": "least_request",
+  "latest_run": {
+    "report": "cloud-ten-least-request-60s.json",
+    "thresholds_passed": true,
+    "config": {
+      "version": 1,
+      "replicas": 10,
+      "policy": "least_request",
+      "duration": "60s",
+      "feed_rps": 50,
+      "recommendations_rps": 30,
+      "photo_upload_rps": 5,
+      "photo_start_after": "15s",
+      "seed": 42
+    }
+  },
+  "replica_range": [
+    1,
+    10
+  ],
+  "requested_layout": "distributed",
+  "migration": {
+    "status": "awaiting_quotas",
+    "quota_request_id": "atdiu9g4sa43fmgm8gbl",
+    "pending_quotas": [
+      "compute.instanceMemory.size.ru-central1-a",
+      "vpc.externalAddresses.count"
+    ],
+    "existing_vms_unchanged": true,
+    "planned_vm_formula": "replicas + 4"
+  }
+}

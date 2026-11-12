@@ -1,0 +1,258 @@
+{
+  "http_errors": [
+    {
+      "metric": {
+        "route": "/ready",
+        "status": "503"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/me",
+        "status": "401"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/notifications/{id}/read",
+        "status": "404"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "other",
+        "status": "404"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/events",
+        "status": "400"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/events/{id}",
+        "status": "403"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/events/{id}/publish",
+        "status": "409"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/events/{id}/publish",
+        "status": "403"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/albums",
+        "status": "403"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/albums/{id}/photos",
+        "status": "403"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/albums/{id}/publish",
+        "status": "403"
+      },
+      "value": [
+        1794485375.808,
+        "0"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/auth/register",
+        "status": "409"
+      },
+      "value": [
+        1794485375.808,
+        "20.18916766057835"
+      ]
+    },
+    {
+      "metric": {
+        "route": "/api/v1/albums/{id}/photos",
+        "status": "429"
+      },
+      "value": [
+        1794485375.808,
+        "135.85057520053476"
+      ]
+    }
+  ],
+  "cpu": [
+    {
+      "metric": {},
+      "value": [
+        1794485375.811,
+        "1.0760000000000005"
+      ]
+    }
+  ],
+  "photo_queue_peak": [
+    {
+      "metric": {
+        "instance": "gatherly-001:8080",
+        "job": "gatherly",
+        "replica": "gatherly-001"
+      },
+      "value": [
+        1794485375.813,
+        "4"
+      ]
+    },
+    {
+      "metric": {
+        "instance": "gatherly-003:8080",
+        "job": "gatherly",
+        "replica": "gatherly-003"
+      },
+      "value": [
+        1794485375.813,
+        "4"
+      ]
+    },
+    {
+      "metric": {
+        "instance": "gatherly-002:8080",
+        "job": "gatherly",
+        "replica": "gatherly-002"
+      },
+      "value": [
+        1794485375.813,
+        "4"
+      ]
+    }
+  ],
+  "photo_active_peak": [
+    {
+      "metric": {
+        "instance": "gatherly-001:8080",
+        "job": "gatherly",
+        "replica": "gatherly-001"
+      },
+      "value": [
+        1794485375.814,
+        "2"
+      ]
+    },
+    {
+      "metric": {
+        "instance": "gatherly-003:8080",
+        "job": "gatherly",
+        "replica": "gatherly-003"
+      },
+      "value": [
+        1794485375.814,
+        "2"
+      ]
+    },
+    {
+      "metric": {
+        "instance": "gatherly-002:8080",
+        "job": "gatherly",
+        "replica": "gatherly-002"
+      },
+      "value": [
+        1794485375.814,
+        "2"
+      ]
+    }
+  ],
+  "replica_restarts": 0,
+  "replica_oom_kills": 0,
+  "envoy_counters": [
+    {
+      "name": "cluster.gatherly.external.upstream_rq_503",
+      "value": 3
+    },
+    {
+      "name": "cluster.gatherly.external.upstream_rq_5xx",
+      "value": 3
+    },
+    {
+      "name": "cluster.gatherly.health_check.failure",
+      "value": 5
+    },
+    {
+      "name": "cluster.gatherly.upstream_cx_connect_fail",
+      "value": 0
+    },
+    {
+      "name": "cluster.gatherly.upstream_rq_503",
+      "value": 3
+    },
+    {
+      "name": "cluster.gatherly.upstream_rq_5xx",
+      "value": 3
+    },
+    {
+      "name": "cluster.gatherly.upstream_rq_pending_overflow",
+      "value": 0
+    },
+    {
+      "name": "cluster.gatherly.upstream_rq_timeout",
+      "value": 0
+    }
+  ],
+  "cpu_cores_peak_30s_average": [
+    {
+      "metric": {},
+      "value": [
+        1794485469.018,
+        "2.002000000000001"
+      ]
+    }
+  ]
+}

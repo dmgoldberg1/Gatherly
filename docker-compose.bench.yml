@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gatherly
+      POSTGRES_DB: gatherly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    command: [postgres, -c, max_connections=230, -c, shared_buffers=128MB]
+    volumes: [bench_postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U gatherly -d gatherly]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  migrate:
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: gatherly
+      PGDATABASE: gatherly
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: [./db/migrations:/migrations:ro, ./scripts/migrate.sh:/migrate.sh:ro]
+    entrypoint: [sh, /migrate.sh]
+  gatherly:
+    image: ${GATHERLY_IMAGE:-gatherly:python-check}
+    environment: &app_environment
+      GATHERLY_DATABASE_URL: postgresql://gatherly:${POSTGRES_PASSWORD}@postgres:5432/gatherly
+      GATHERLY_AUTH_SECRET: ${GATHERLY_AUTH_SECRET:?Set GATHERLY_AUTH_SECRET}
+      GATHERLY_OUTBOX_WORKER: "0"
+      GATHERLY_DB_POOL_SIZE: "2"
+      GATHERLY_CACHED_READINESS: "1"
+    volumes: [bench_media:/data]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    cpus: 1
+    mem_limit: 1g
+  worker:
+    restart: unless-stopped
+    image: ${GATHERLY_WORKER_IMAGE:-gatherly-worker:check}
+    environment: *app_environment
+    volumes: [bench_media:/data]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    mem_limit: 2g
+  envoy:
+    image: envoyproxy/envoy:v1.37.1
+    command: [-c, /etc/envoy/bootstrap.json, --concurrency, "2"]
+    volumes: [./.local/bench/current:/etc/envoy:ro]
+    ports: [127.0.0.1:18090:8080, 127.0.0.1:19901:9901]
+volumes:
+  bench_postgres:
+  bench_media:

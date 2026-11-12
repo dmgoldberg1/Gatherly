@@ -1,0 +1,162 @@
+name: Gatherly cloud load benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [deploy_and_test, update_config]
+        default: deploy_and_test
+      run_load_test:
+        description: Run k6 after update_config
+        type: boolean
+        default: false
+      config_file:
+        description: Versioned JSON config under bench/; other inputs override its values
+        type: string
+        default: bench/defaults.json
+      replicas:
+        description: Number of replica VMs (1–10); blank uses versioned defaults
+        type: string
+      policy:
+        description: round_robin or least_request; blank uses versioned defaults
+        type: string
+      duration:
+        description: Duration, e.g. 180s
+        type: string
+      feed_rps:
+        type: string
+      recommendations_rps:
+        type: string
+      photo_upload_rps:
+        type: string
+      photo_start_after:
+        description: Upload scenario delay, e.g. 60s
+        type: string
+      seed:
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: gatherly-bench-${{ vars.BENCH_STAND_NAME || 'default' }}
+  cancel-in-progress: false
+env:
+  YC_CLOUD_ID: ${{ vars.YC_CLOUD_ID }}
+  YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
+  YC_ZONE: ${{ vars.YC_ZONE || 'ru-central1-a' }}
+  BENCH_BUCKET: ${{ vars.BENCH_BUCKET }}
+  BENCH_STATE_BUCKET: ${{ vars.BENCH_STATE_BUCKET }}
+  BENCH_STAND_NAME: ${{ vars.BENCH_STAND_NAME || 'gatherly-bench' }}
+  BENCH_SUBNET_ID: ${{ vars.BENCH_SUBNET_ID }}
+  BENCH_LAYOUT: distributed
+  BENCH_LOAD_ZONE: ${{ vars.BENCH_LOAD_ZONE || 'ru-central1-d' }}
+  BENCH_PREEMPTIBLE: ${{ vars.BENCH_PREEMPTIBLE || 'true' }}
+  YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.BENCH_STATE_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.BENCH_STATE_SECRET_KEY }}
+  BENCH_DB_PASSWORD: ${{ secrets.BENCH_DB_PASSWORD }}
+  BENCH_AUTH_SECRET: ${{ secrets.BENCH_AUTH_SECRET }}
+  BENCH_SSH_PRIVATE_KEY: ${{ secrets.BENCH_SSH_PRIVATE_KEY }}
+jobs:
+  cleanup_workspace:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Resolve overrides and validate before cloud changes
+        env:
+          BENCH_INPUTS: ${{ toJSON(inputs) }}
+          BENCH_CONFIG_FILE: ${{ inputs.config_file }}
+        run: python bench/control.py resolve --config "$BENCH_CONFIG_FILE" --overrides-env BENCH_INPUTS --output config.json
+      - name: Show the effective configuration
+        run: python bench/report.py --config config.json --config-only --output "$GITHUB_STEP_SUMMARY"
+      - name: Clean only temporary benchmark work files
+        run: python bench/cloud.py cleanup_workspace --config config.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: effective-config
+          path: config.json
+          retention-days: 14
+  deploy:
+    needs: cleanup_workspace
+    if: inputs.mode == 'deploy_and_test'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: effective-config}
+      - uses: ./.github/actions/bench-setup
+      - name: Build and deploy the Python stand
+        run: python bench/cloud.py deploy --config config.json
+      - name: Collect available diagnostics on failure
+        if: failure()
+        run: python bench/cloud.py diagnostics --config config.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-report
+          path: |
+            config.json
+            .local/bench/verification.json
+            .local/bench/*-logs.txt
+          include-hidden-files: true
+          retention-days: 14
+  update_config:
+    needs: cleanup_workspace
+    if: inputs.mode == 'update_config'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: effective-config}
+      - uses: ./.github/actions/bench-setup
+      - name: Update replicas and CDS using the deployed image
+        run: python bench/cloud.py update_config --config config.json
+      - name: Collect available diagnostics on failure
+        if: failure()
+        run: python bench/cloud.py diagnostics --config config.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: configuration-update-report
+          path: |
+            config.json
+            .local/bench/verification.json
+            .local/bench/*-logs.txt
+          include-hidden-files: true
+          retention-days: 14
+  load_test:
+    needs: [cleanup_workspace, deploy, update_config]
+    if: >-
+      ${{ !cancelled() && needs.cleanup_workspace.result == 'success' &&
+      (needs.deploy.result == 'success' ||
+      (inputs.mode == 'update_config' && inputs.run_load_test && needs.update_config.result == 'success')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: effective-config}
+      - uses: ./.github/actions/bench-setup
+      - name: Verify active proxy configuration and run k6 on its own VM
+        run: python bench/cloud.py load_test --config config.json
+      - name: Collect available diagnostics on failure
+        if: failure()
+        run: python bench/cloud.py diagnostics --config config.json
+      - name: Write per-scenario results to the Actions report
+        if: always()
+        run: python bench/report.py --config config.json --report .local/bench/report.json --output "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test-results
+          path: |
+            config.json
+            .local/bench/report.json
+            .local/bench/summary.json
+            .local/bench/verification.json
+            .local/bench/*-logs.txt
+          include-hidden-files: true
+          retention-days: 14

@@ -1,0 +1,42 @@
+{
+  "config": {
+    "version": 1,
+    "replicas": 3,
+    "policy": "least_request",
+    "duration": "15s",
+    "feed_rps": 5,
+    "recommendations_rps": 3,
+    "photo_upload_rps": 1,
+    "photo_start_after": "5s",
+    "seed": 42
+  },
+  "scenarios": {
+    "feed": {
+      "target_rps": 5,
+      "successful_rps": 5,
+      "successful_requests": 75,
+      "p95_ms": 11.041637799999997,
+      "p99_ms": 12.737841180000004,
+      "error_rate": 0,
+      "dropped_iterations": 0
+    },
+    "recommendations": {
+      "target_rps": 3,
+      "successful_rps": 3.066666666666667,
+      "successful_requests": 46,
+      "p95_ms": 16.45923875,
+      "p99_ms": 17.3938564,
+      "error_rate": 0,
+      "dropped_iterations": 0
+    },
+    "photo_upload": {
+      "target_rps": 1,
+      "successful_rps": 1,
+      "successful_requests": 10,
+      "p95_ms": 705.1582519499999,
+      "p99_ms": 705.71934399,
+      "error_rate": 0,
+      "dropped_iterations": 0
+    }
+  }
+}

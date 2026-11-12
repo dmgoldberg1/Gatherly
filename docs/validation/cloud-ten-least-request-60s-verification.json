@@ -1,0 +1,5 @@
+{
+  "policy": "least_request",
+  "healthy_replicas": 10,
+  "cds_verified": true
+}

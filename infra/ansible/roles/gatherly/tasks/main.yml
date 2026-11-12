@@ -57,6 +57,22 @@
   ansible.builtin.command: docker load -i {{ gatherly_root }}/image.tar
   when: image_archive | length > 0 and copied_image.changed
   changed_when: true
+- name: Copy locally built worker archive when requested
+  ansible.builtin.copy:
+    src: "{{ worker_image_archive }}"
+    dest: "{{ gatherly_root }}/worker.tar"
+    mode: '0600'
+  register: copied_worker_image
+  when: worker_image_archive | length > 0
+- name: Load worker archive
+  ansible.builtin.command: docker load -i {{ gatherly_root }}/worker.tar
+  when: worker_image_archive | length > 0 and copied_worker_image.changed
+  changed_when: true
+- name: Pull registry worker image when no archive is supplied
+  ansible.builtin.command: docker compose -f docker-compose.prod.yml pull worker
+  args: {chdir: "{{ gatherly_root }}"}
+  when: worker_image_archive | length == 0
+  changed_when: false
 - name: Validate Compose configuration
   ansible.builtin.command: docker compose -f docker-compose.prod.yml config --quiet
   args: {chdir: "{{ gatherly_root }}"}

@@ -1,0 +1,15 @@
+{
+  "server_vm_id_preserved": true,
+  "database_rows_and_content_hashes_preserved": true,
+  "existing_container_and_image_ids_preserved": true,
+  "existing_containers_compared": 11,
+  "business_rows": {
+    "users": 16,
+    "events": 29,
+    "albums": 50,
+    "album_photos": 1,
+    "participations": 15
+  },
+  "root_filesystem_gib": 18.72,
+  "root_free_gib": 12.14
+}

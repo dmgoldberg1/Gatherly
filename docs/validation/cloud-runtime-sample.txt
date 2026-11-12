@@ -1,0 +1,28 @@
+Single runtime sample during the 180s cloud load test (not peak measurements).
+
+Separate k6 VM
+
+friendly_beaver 14.33% 854.1MiB / 1.921GiB
+gatherly-bench-cadvisor-1 1.23% 95.66MiB / 1.921GiB
+gatherly-bench-node-exporter-1 0.00% 21.46MiB / 1.921GiB
+               total        used        free      shared  buff/cache   available
+Mem:            1966        1304         330           1         490         662
+Swap:              0           0           0
+
+
+
+Compact application VM
+
+gatherly-bench-gatherly-002-1 55.50% 645MiB / 1GiB
+gatherly-bench-gatherly-003-1 60.10% 412.6MiB / 1GiB
+gatherly-bench-prometheus-1 0.26% 100.4MiB / 256MiB
+gatherly-bench-worker-1 0.09% 347.5MiB / 2GiB
+gatherly-bench-node-exporter-1 0.00% 9.215MiB / 7.755GiB
+gatherly-bench-grafana-1 0.85% 192.9MiB / 512MiB
+gatherly-bench-gatherly-001-1 54.56% 466MiB / 1GiB
+gatherly-bench-envoy-1 9.80% 30.27MiB / 7.755GiB
+gatherly-bench-postgres-exporter-1 0.00% 6.773MiB / 7.755GiB
+gatherly-bench-cadvisor-1 3.36% 55.59MiB / 7.755GiB
+gatherly-bench-postgres-1 4.76% 48.2MiB / 7.755GiB
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1       9.1G  6.5G  2.6G  72% /

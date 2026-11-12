@@ -1,0 +1,131 @@
+[
+  {
+    "panel": "Успешные запросы по репликам",
+    "series": 3,
+    "labels": [
+      {
+        "replica": "gatherly-001"
+      },
+      {
+        "replica": "gatherly-003"
+      },
+      {
+        "replica": "gatherly-002"
+      }
+    ]
+  },
+  {
+    "panel": "CPU приложения по репликам",
+    "series": 3,
+    "labels": [
+      {
+        "replica": "gatherly-003"
+      },
+      {
+        "replica": "gatherly-002"
+      },
+      {
+        "replica": "gatherly-001"
+      }
+    ]
+  },
+  {
+    "panel": "Очередь обработки фото",
+    "series": 3,
+    "labels": [
+      {
+        "__name__": "gatherly_photo_processing_queued",
+        "instance": "gatherly-001:8080",
+        "job": "gatherly",
+        "replica": "gatherly-001"
+      },
+      {
+        "__name__": "gatherly_photo_processing_queued",
+        "instance": "gatherly-003:8080",
+        "job": "gatherly",
+        "replica": "gatherly-003"
+      },
+      {
+        "__name__": "gatherly_photo_processing_queued",
+        "instance": "gatherly-002:8080",
+        "job": "gatherly",
+        "replica": "gatherly-002"
+      }
+    ]
+  },
+  {
+    "panel": "Активная обработка фото",
+    "series": 3,
+    "labels": [
+      {
+        "__name__": "gatherly_photo_processing_active",
+        "instance": "gatherly-001:8080",
+        "job": "gatherly",
+        "replica": "gatherly-001"
+      },
+      {
+        "__name__": "gatherly_photo_processing_active",
+        "instance": "gatherly-003:8080",
+        "job": "gatherly",
+        "replica": "gatherly-003"
+      },
+      {
+        "__name__": "gatherly_photo_processing_active",
+        "instance": "gatherly-002:8080",
+        "job": "gatherly",
+        "replica": "gatherly-002"
+      }
+    ]
+  },
+  {
+    "panel": "Подключения PostgreSQL",
+    "series": 1,
+    "labels": [
+      {
+        "__name__": "pg_stat_database_numbackends",
+        "datid": "16384",
+        "datname": "gatherly",
+        "instance": "10.53.0.20:9187",
+        "job": "postgres"
+      }
+    ]
+  },
+  {
+    "panel": "Транзакции PostgreSQL",
+    "series": 1,
+    "labels": [
+      {
+        "datid": "16384",
+        "datname": "gatherly",
+        "instance": "10.53.0.20:9187",
+        "job": "postgres"
+      }
+    ]
+  },
+  {
+    "panel": "Доступность PostgreSQL — отдельная проверка",
+    "series": 1,
+    "labels": [
+      {
+        "__name__": "pg_up",
+        "instance": "10.53.0.20:9187",
+        "job": "postgres"
+      }
+    ]
+  },
+  {
+    "panel": "p99 HTTP по репликам",
+    "series": 3,
+    "labels": [
+      {
+        "replica": "gatherly-001"
+      },
+      {
+        "replica": "gatherly-003"
+      },
+      {
+        "replica": "gatherly-002"
+      }
+    ]
+  }
+]

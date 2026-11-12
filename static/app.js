@@ -10,6 +10,7 @@ const state = {
   followingIds: new Set(),
   publicEvents: [],
   feedEvents: [],
+  recommendations: [],
   history: [],
   owned: [],
   notifications: [],
@@ -238,7 +239,7 @@ function myParticipationFor(eventId) {
 
 function allSearchableEvents() {
   const byId = new Map();
-  [...state.publicEvents, ...state.feedEvents, ...state.history.map((item) => item.event)].forEach((event) => {
+  [...state.recommendations, ...state.publicEvents, ...state.feedEvents, ...state.history.map((item) => item.event)].forEach((event) => {
     if (event && !byId.has(event.id)) {
       byId.set(event.id, event);
     }
@@ -267,7 +268,7 @@ async function refreshOwnedParticipantCache() {
 
 function homeEvents() {
   const byId = new Map();
-  [...ownedEvents(), ...state.history.map((item) => item.event), ...state.feedEvents].forEach((event) => {
+  [...state.recommendations, ...ownedEvents(), ...state.history.map((item) => item.event), ...state.feedEvents].forEach((event) => {
     if (event && !byId.has(event.id)) {
       byId.set(event.id, event);
     }
@@ -615,6 +616,7 @@ function eventDetailHtml(event) {
     <div><span>Статус</span><strong>${escapeHtml(event.status)}</strong></div>
   </div>
   <div class="profile-actions">
+    <button type="button" class="light-button" data-event-albums="${event.id}">Фотоальбомы</button>
     ${canJoin ? `<button type="button" data-join-event="${event.id}">Записаться</button>` : ""}
     ${participation ? `<button class="light-button" type="button" data-leave-event="${event.id}">Отменить участие</button>` : ""}
     ${owner ? `<span class="profile-meta">Это ваше мероприятие</span>` : ""}
@@ -743,6 +745,7 @@ async function refreshAll(options = {}) {
 
     await refreshOwnedParticipantCache();
     renderAll();
+    if (typeof refreshFeatures === "function") await refreshFeatures();
   })();
 
   try {

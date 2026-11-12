@@ -8,8 +8,10 @@ services:
       migrate:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:8080:8080"
+    - 127.0.0.1:8080:8080
     restart: unless-stopped
+    volumes:
+    - gatherly_media:/data
   migrate:
     image: postgres:16-alpine
     environment:
@@ -21,9 +23,11 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./db/migrations:/migrations:ro
-      - ./scripts/migrate.sh:/migrate.sh:ro
-    entrypoint: ["sh", "/migrate.sh"]
+    - ./db/migrations:/migrations:ro
+    - ./scripts/migrate.sh:/migrate.sh:ro
+    entrypoint:
+    - sh
+    - /migrate.sh
   postgres:
     image: postgres:16-alpine
     environment:
@@ -31,21 +35,39 @@ services:
       POSTGRES_USER: gatherly
       POSTGRES_PASSWORD: gatherly
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gatherly -d gatherly"]
+      test:
+      - CMD-SHELL
+      - pg_isready -U gatherly -d gatherly
       interval: 3s
       timeout: 3s
       retries: 20
     volumes:
-      - gatherly_postgres_data:/var/lib/postgresql/data
+    - gatherly_postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
   swagger-ui:
     image: swaggerapi/swagger-ui:v5.17.14
-    profiles: ["docs"]
+    profiles:
+    - docs
     environment:
       SWAGGER_JSON: /openapi/openapi.yaml
     volumes:
-      - ./docs/openapi.yaml:/openapi/openapi.yaml:ro
+    - ./docs/openapi.yaml:/openapi/openapi.yaml:ro
     ports:
-      - "127.0.0.1:8081:8080"
+    - 127.0.0.1:8081:8080
+  worker:
+    image: gatherly-worker:demo
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      GATHERLY_DATABASE_URL: postgresql://gatherly:gatherly@postgres:5432/gatherly
+      GATHERLY_DB_POOL_SIZE: '2'
+    volumes:
+    - gatherly_media:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 volumes:
-  gatherly_postgres_data:
+  gatherly_postgres_data: null
+  gatherly_media: null

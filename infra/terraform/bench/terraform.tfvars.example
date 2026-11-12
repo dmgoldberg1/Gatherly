@@ -1,0 +1,11 @@
+cloud_id            = "your-cloud-id"
+folder_id           = "your-folder-id"
+zone                = "ru-central1-a"
+preemptible         = true
+layout              = "distributed"
+load_zone           = "ru-central1-d"
+stand_name          = "gatherly-bench"
+replicas            = 3
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+admin_cidr          = "203.0.113.10/32"
+bucket_name         = "globally-unique-gatherly-bench-objects"

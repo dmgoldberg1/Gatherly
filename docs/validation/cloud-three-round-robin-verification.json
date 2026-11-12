@@ -1,0 +1,5 @@
+{
+  "policy": "round_robin",
+  "healthy_replicas": 3,
+  "cds_verified": true
+}

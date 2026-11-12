@@ -82,6 +82,24 @@
         </div>
 
         <div class="home-grid">
+          <article class="panel wide-panel">
+            <div class="panel-heading"><h3>Рекомендовано вам</h3></div>
+            <p id="recommendationHint" class="profile-meta"></p>
+            <div id="recommendationsList" class="item-list event-list-grid"></div>
+          </article>
+          <article class="panel wide-panel" id="albumsPanel">
+            <div class="panel-heading"><h3>Фотоальбомы</h3></div>
+            <label>Мероприятие<select id="albumEvent"></select></label>
+            <form id="albumForm">
+              <label>Название альбома<input id="albumTitle" maxlength="120" required placeholder="Как прошла встреча"></label>
+              <label>Фотографии<input id="albumFiles" type="file" multiple accept="image/jpeg,image/png,image/webp" required></label>
+              <p class="profile-meta">До 100 фотографий, до 12 МБ и 24 мегапикселей каждая.</p>
+              <button id="albumSubmit" type="submit">Создать и опубликовать альбом</button>
+              <p id="albumProgress" role="status" aria-live="polite"></p>
+            </form>
+            <div id="albumsList" class="item-list"></div>
+          </article>
+
           <article class="panel wide-panel home-owned-panel">
             <div class="panel-heading">
               <div>
@@ -232,5 +250,6 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/app.js"></script>
+  <script src="/features.js"></script>
 </body>
 </html>

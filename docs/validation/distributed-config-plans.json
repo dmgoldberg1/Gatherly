@@ -1,0 +1,27 @@
+{
+  "dry_run_only": true,
+  "live_terraform_state_unchanged": true,
+  "cases": [
+    {
+      "replicas": 1,
+      "total_vms": 5,
+      "new_vms": 3,
+      "database_vm_preserved": true,
+      "deletions": 0
+    },
+    {
+      "replicas": 3,
+      "total_vms": 7,
+      "new_vms": 5,
+      "database_vm_preserved": true,
+      "deletions": 0
+    },
+    {
+      "replicas": 10,
+      "total_vms": 14,
+      "new_vms": 12,
+      "database_vm_preserved": true,
+      "deletions": 0
+    }
+  ]
+}

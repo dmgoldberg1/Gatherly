@@ -1,0 +1,28 @@
+{
+  "server": {
+    "id": "fhmdn1lf7c7qmsbqatfv",
+    "zone": "ru-central1-a",
+    "status": "RUNNING",
+    "vCPU": 8,
+    "RAM_GiB": 16.0,
+    "core_fraction": 100,
+    "disk_type": "network-ssd",
+    "disk_GiB": 20.0,
+    "preemptible": true,
+    "public_ip": "51.250.81.77",
+    "private_ip": "10.53.0.20"
+  },
+  "load": {
+    "id": "fv44ol872q8ms2cs4e1e",
+    "zone": "ru-central1-d",
+    "status": "RUNNING",
+    "vCPU": 8,
+    "RAM_GiB": 16.0,
+    "core_fraction": 100,
+    "disk_type": "network-ssd",
+    "disk_GiB": 20.0,
+    "preemptible": true,
+    "public_ip": "153.51.164.174",
+    "private_ip": "10.52.0.4"
+  }
+}

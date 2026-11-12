@@ -8,6 +8,8 @@
     letsencrypt_email: ""
     enable_https: false
     image_archive: ""
+    worker_image_archive: ""
+    gatherly_worker_image: gatherly-worker:demo
   roles:
     - docker
     - gatherly

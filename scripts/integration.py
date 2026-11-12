@@ -24,7 +24,8 @@ def eventually(check, seconds=30):
 client,accounts,_=smoke('http://127.0.0.1:18080')
 (owner,ot),(guest,gt),_=accounts
 compose('run','--rm','migrate')
-assert sql('SELECT count(*) FROM schema_migrations')=='2'
+from pathlib import Path
+assert int(sql('SELECT count(*) FROM schema_migrations')) == len(list(Path('db/migrations').glob('*.sql')))
 assert private('/ready').endswith('200')
 client.request('GET','/metrics',expected=404)
 client.request('GET','/ready',expected=404)

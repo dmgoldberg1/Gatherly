@@ -1,0 +1,14 @@
+{
+  "smoke": "passed",
+  "compatibility": "passed",
+  "album_features": "passed",
+  "album_storage": "private Yandex Object Storage",
+  "checks": [
+    "auth and existing HTTP contracts",
+    "concurrent capacity and waitlist promotion",
+    "visibility and permissions",
+    "album-bound signed tokens",
+    "image variants read from Object Storage",
+    "receipt validation and idempotent publication"
+  ]
+}

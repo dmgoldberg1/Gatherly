@@ -1,0 +1,8 @@
+{
+  "same_config_reapplied": true,
+  "container_ids_preserved": true,
+  "image_ids_preserved": true,
+  "postgres_business_row_counts_preserved": true,
+  "policy": "least_request",
+  "replicas": 3
+}

@@ -1,0 +1,9 @@
+fastapi==0.135.2
+uvicorn==0.42.0
+psycopg[binary,pool]==3.3.3
+PyJWT==2.12.1
+Pillow==12.2.0
+numpy==2.4.3
+boto3==1.42.70
+prometheus-client==0.24.1
+python-multipart==0.0.22

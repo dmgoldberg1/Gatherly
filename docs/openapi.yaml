@@ -1,12 +1,13 @@
 openapi: 3.0.3
 info:
   title: Gatherly API
-  version: 0.1.0
-  description: API платформы неформальных событий с подписками, участием, уведомлениями, outbox worker и пагинацией limit/offset.
+  version: 0.2.0
+  description: API платформы неформальных событий с подписками, участием, уведомлениями,
+    outbox worker и пагинацией limit/offset.
 servers:
-  - url: http://localhost:8080/api/v1
+- url: http://localhost:8080/api/v1
 security:
-  - bearerAuth: []
+- bearerAuth: []
 paths:
   /auth/register:
     post:
@@ -19,8 +20,10 @@ paths:
             schema:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
-        '201': { description: Пользователь создан }
-        '409': { description: Username или email уже занят }
+        '201':
+          description: Пользователь создан
+        '409':
+          description: Username или email уже занят
   /auth/login:
     post:
       security: []
@@ -32,80 +35,95 @@ paths:
             schema:
               $ref: '#/components/schemas/LoginRequest'
       responses:
-        '200': { description: Token возвращён }
-        '401': { description: Неверные credentials }
+        '200':
+          description: Token возвращён
+        '401':
+          description: Неверные credentials
   /me:
     get:
       summary: Получить профиль текущего пользователя
       responses:
-        '200': { description: Текущий пользователь }
-        '401': { description: Требуется авторизация }
+        '200':
+          description: Текущий пользователь
+        '401':
+          description: Требуется авторизация
   /me/participations:
     get:
       summary: Получить историю участий текущего пользователя
       parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Offset'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
       responses:
-        '200': { description: Участия с карточками событий }
-        '401': { description: Требуется авторизация }
+        '200':
+          description: Участия с карточками событий
+        '401':
+          description: Требуется авторизация
   /users:
     get:
       security: []
       summary: Получить список пользователей
       parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Offset'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
       responses:
-        '200': { description: Пользователи }
+        '200':
+          description: Пользователи
   /users/{id}:
     get:
       security: []
       summary: Получить профиль пользователя
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Пользователь }
-        '404': { description: Не найдено }
+        '200':
+          description: Пользователь
+        '404':
+          description: Не найдено
   /users/{id}/follow:
     post:
       summary: Подписаться на пользователя
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Подписка создана }
-        '409': { description: Подписка уже существует }
+        '200':
+          description: Подписка создана
+        '409':
+          description: Подписка уже существует
     delete:
       summary: Отписаться от пользователя
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Подписка удалена }
+        '200':
+          description: Подписка удалена
   /users/{id}/followers:
     get:
       security: []
       summary: Получить подписчиков пользователя
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Подписчики }
+        '200':
+          description: Подписчики
   /users/{id}/following:
     get:
       security: []
       summary: Получить пользователей, на которых подписан user
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Подписки }
+        '200':
+          description: Подписки
   /events:
     get:
       security: []
       summary: Получить публичные события
       parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Offset'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
       responses:
-        '200': { description: Публичные события }
+        '200':
+          description: Публичные события
     post:
       summary: Создать draft события
       requestBody:
@@ -115,18 +133,20 @@ paths:
             schema:
               $ref: '#/components/schemas/EventRequest'
       responses:
-        '201': { description: Draft создан }
+        '201':
+          description: Draft создан
   /events/{id}:
     get:
       summary: Получить событие
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Событие }
+        '200':
+          description: Событие
     patch:
       summary: Частично обновить событие
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       requestBody:
         required: true
         content:
@@ -134,12 +154,13 @@ paths:
             schema:
               $ref: '#/components/schemas/EventPatchRequest'
       responses:
-        '200': { description: Событие обновлено }
+        '200':
+          description: Событие обновлено
   /events/{id}/publish:
     post:
       summary: Опубликовать событие
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       requestBody:
         required: false
         content:
@@ -153,40 +174,45 @@ paths:
                     type: integer
                     format: int64
       responses:
-        '200': { description: Событие опубликовано }
+        '200':
+          description: Событие опубликовано
   /events/{id}/cancel:
     post:
       summary: Отменить событие
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Событие отменено }
+        '200':
+          description: Событие отменено
   /feed:
     get:
       summary: Получить события пользователей из подписок
       parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Offset'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
       responses:
-        '200': { description: Feed }
+        '200':
+          description: Feed
   /events/{id}/participants:
     post:
       summary: Присоединиться к событию
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '201': { description: Участие создано }
+        '201':
+          description: Участие создано
     get:
       summary: Организатор получает список участников
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Участники }
+        '200':
+          description: Участники
   /events/{id}/participants/me:
     patch:
       summary: Изменить мой статус участия
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       requestBody:
         required: true
         content:
@@ -196,35 +222,181 @@ paths:
               properties:
                 status:
                   type: string
-                  enum: [GOING, MAYBE, DECLINED, WAITLISTED]
+                  enum:
+                  - GOING
+                  - MAYBE
+                  - DECLINED
+                  - WAITLISTED
       responses:
-        '200': { description: Статус обновлён }
+        '200':
+          description: Статус обновлён
     delete:
       summary: Выйти из события
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Пользователь вышел из события }
+        '200':
+          description: Пользователь вышел из события
   /notifications:
     get:
       summary: Получить мои уведомления
       parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Offset'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
       responses:
-        '200': { description: Уведомления }
+        '200':
+          description: Уведомления
   /notifications/{id}/read:
     patch:
       summary: Пометить уведомление прочитанным
       parameters:
-        - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Уведомление }
+        '200':
+          description: Уведомление
+  /recommendations:
+    get:
+      summary: Персональные рекомендации; при пустой истории — популярные события
+      parameters:
+      - &id001
+        $ref: '#/components/parameters/Limit'
+      - &id002
+        $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Страница событий со score, source и generation
+        '503':
+          description: Снимок каталога ещё не готов
+  /albums:
+    get:
+      summary: Альбомы пользователя или доступные альбомы события
+      parameters:
+      - *id001
+      - *id002
+      - name: event_id
+        in: query
+        schema: &id003
+          type: integer
+      responses:
+        '200':
+          description: Страница альбомов
+    post:
+      summary: Создать альбом и получить токен загрузки на 600 секунд
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_id: *id003
+                title:
+                  type: string
+                  maxLength: 120
+              required:
+              - event_id
+              - title
+      responses:
+        '201':
+          description: album, upload_token, expires_in
+        '403':
+          description: Требуется организатор или участник GOING
+  /albums/{id}:
+    parameters:
+    - &id004
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    get:
+      summary: Посмотреть альбом и ссылки на фото на 300 секунд
+      responses:
+        '200':
+          description: Альбом с photos, thumbnail_url и gallery_url
+        '403':
+          description: Нет доступа к альбому или событию
+  /albums/{id}/photos:
+    parameters:
+    - *id004
+    post:
+      summary: Обработать фото без SQL; запрос активен до сохранения обоих вариантов
+      security:
+      - uploadToken: []
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: photo и подписанный receipt
+        '400':
+          description: Невалидное изображение
+        '401':
+          description: Неверный или просроченный токен
+        '403':
+          description: Токен другого альбома
+        '413':
+          description: Более 12 МБ или 24 млн пикселей
+        '429':
+          description: Очередь обработки заполнена
+  /albums/{id}/publish:
+    parameters:
+    - *id004
+    post:
+      summary: Проверить готовность и опубликовать фото одной короткой транзакцией;
+        одинаковый повтор безопасен
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                receipts:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 100
+              required:
+              - receipts
+      responses:
+        '200':
+          description: Опубликованный альбом
+        '409':
+          description: Фото не готово или альбом опубликован с другим набором фото
+  /albums/{id}/upload-token:
+    parameters:
+    - *id004
+    post:
+      summary: Обновить токен загрузки черновика; только владелец
+      responses:
+        '200':
+          description: upload_token, expires_in
+        '409':
+          description: Альбом уже опубликован
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+    uploadToken:
+      type: apiKey
+      in: header
+      name: X-Upload-Token
   parameters:
     Id:
       name: id
@@ -252,51 +424,88 @@ components:
   schemas:
     RegisterRequest:
       type: object
-      required: [username, email, password]
+      required:
+      - username
+      - email
+      - password
       properties:
-        username: { type: string }
-        email: { type: string }
-        password: { type: string }
-        bio: { type: string }
-        avatar_url: { type: string }
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        bio:
+          type: string
+        avatar_url:
+          type: string
     LoginRequest:
       type: object
-      required: [password]
+      required:
+      - password
       properties:
-        username: { type: string }
-        email: { type: string }
-        password: { type: string }
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
       anyOf:
-        - required: [username]
-        - required: [email]
+      - required:
+        - username
+      - required:
+        - email
     EventRequest:
       type: object
-      required: [title, location, starts_at]
+      required:
+      - title
+      - location
+      - starts_at
       properties:
-        title: { type: string }
-        description: { type: string }
-        location: { type: string }
-        starts_at: { type: string }
-        ends_at: { type: string }
-        photo_url: { type: string }
-        category: { type: string }
+        title:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        starts_at:
+          type: string
+        ends_at:
+          type: string
+        photo_url:
+          type: string
+        category:
+          type: string
         visibility:
           type: string
-          enum: [PUBLIC, FOLLOWERS_ONLY, PRIVATE]
+          enum:
+          - PUBLIC
+          - FOLLOWERS_ONLY
+          - PRIVATE
         participant_limit:
           type: integer
     EventPatchRequest:
       type: object
       properties:
-        title: { type: string }
-        description: { type: string }
-        location: { type: string }
-        starts_at: { type: string }
-        ends_at: { type: string }
-        photo_url: { type: string }
-        category: { type: string }
+        title:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        starts_at:
+          type: string
+        ends_at:
+          type: string
+        photo_url:
+          type: string
+        category:
+          type: string
         visibility:
           type: string
-          enum: [PUBLIC, FOLLOWERS_ONLY, PRIVATE]
+          enum:
+          - PUBLIC
+          - FOLLOWERS_ONLY
+          - PRIVATE
         participant_limit:
           type: integer

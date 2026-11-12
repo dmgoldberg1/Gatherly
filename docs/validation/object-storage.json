@@ -1,0 +1,1 @@
+{"object_storage": "Yandex Object Storage", "put_get_head": true, "pillow_variants": true, "ready_marker": true, "test_objects_removed": true}

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "replicas": 3,
+  "policy": "round_robin",
+  "duration": "60s",
+  "feed_rps": 50,
+  "recommendations_rps": 30,
+  "photo_upload_rps": 5,
+  "photo_start_after": "15s",
+  "seed": 42
+}
